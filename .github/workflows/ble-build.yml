@@ -1,0 +1,52 @@
+name: ble-build
+
+on:
+  push:
+    branches: [ble]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'cmdline-tools;latest platform-tools'
+
+      # Keep one debug signing key across builds so updates install over
+      # earlier test builds.
+      - name: Restore debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
+      - name: Unit tests (BLE)
+        run: ./gradlew --no-configuration-cache :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
+
+      - name: Build debug APK
+        run: ./gradlew --no-configuration-cache :app:assembleOssDebug
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/oss/debug/*.apk "out/connectbot-ble-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}.apk"
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connectbot-ble-apk
+          path: out/*.apk

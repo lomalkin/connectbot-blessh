@@ -482,7 +482,7 @@ class HostEditorViewModel @Inject constructor(
             val pendingKeyboard = keyboardDraft.value
             val pendingAutomation = automationDraft.value?.let(AutomationDraftCodec::decode)
             val pendingMacros = automationMacros.value.filter { macro -> pendingAutomation.orEmpty().any { it.macroId == macro.id } }
-            if (state.protocol == "ssh" || state.protocol == "mosh") {
+            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "ble") {
                 withContext(dispatchers.default) { state.crypto.resolve() }
             }
             val existingHost = if (hostId != EntityIds.NONE) {
@@ -543,7 +543,7 @@ class HostEditorViewModel @Inject constructor(
             }
 
             // Handle password storage for SSH and Mosh
-            if (state.protocol == "ssh" || state.protocol == "mosh") {
+            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "ble") {
                 if (state.password.isNotEmpty()) {
                     // Save or update the password
                     securePasswordStorage.savePassword(savedHost.id, state.password)

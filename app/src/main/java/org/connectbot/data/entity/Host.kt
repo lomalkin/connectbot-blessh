@@ -177,6 +177,13 @@ data class Host(
                 builder.fragment(nickname)
             }
 
+            "ble" -> {
+                // Colons of the Bluetooth address would be parsed as a port separator.
+                val address = hostname.replace(":", "").replace("-", "")
+                builder.encodedAuthority(if (username.isNotEmpty()) "${Uri.encode(username)}@$address" else address)
+                builder.fragment(nickname)
+            }
+
             "ssh", "mosh", "telnet" -> {
                 // Build authority with hostname and port
                 val authority = buildString {
@@ -211,6 +218,19 @@ data class Host(
             username = username,
             hostname = hostname,
             port = port,
+        )
+
+        /**
+         * Create a new Bluetooth LE (SSH over ble-term) host.
+         */
+        @JvmStatic
+        fun createBleHost(nickname: String, hostname: String, username: String): Host = Host(
+            id = UUID.randomUUID(),
+            nickname = nickname,
+            protocol = "ble",
+            username = username,
+            hostname = hostname,
+            port = 0,
         )
 
         /**
