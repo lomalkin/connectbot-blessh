@@ -196,7 +196,7 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
         const val VERSION = 1
         const val HEADER_LEN = 3
         const val MIN_FRAME = 20
-        const val MAX_FRAME = 512
+        const val MAX_FRAME = 500
         const val REORDER_LIMIT = 64
 
         const val T_HELLO = 0x01

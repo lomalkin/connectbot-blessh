@@ -502,7 +502,7 @@ class HostEditorViewModel @Inject constructor(
                 protocol = state.protocol,
                 username = state.username,
                 hostname = state.hostname,
-                port = state.port.toIntOrNull() ?: getDefaultPort(state.protocol).toIntOrNull() ?: 22,
+                port = if (state.protocol == "ble") 0 else state.port.toIntOrNull() ?: getDefaultPort(state.protocol).toIntOrNull() ?: 22,
                 color = state.color.takeIf { it != "gray" },
                 pubkeyId = state.pubkeyId,
                 profileId = state.profileId,
