@@ -29,7 +29,7 @@ jobs:
       # Keep one debug signing key across builds so updates install over
       # earlier test builds.
       - name: Restore debug keystore
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.android/debug.keystore
           key: debug-keystore-v1
