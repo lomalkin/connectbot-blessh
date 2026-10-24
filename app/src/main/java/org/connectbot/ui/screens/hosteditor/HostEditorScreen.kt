@@ -17,6 +17,13 @@
 
 package org.connectbot.ui.screens.hosteditor
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -238,6 +245,16 @@ fun HostEditorScreenContent(
     var showAdvancedOptions by rememberSaveable(hostId) { mutableStateOf(false) }
     val protocols = listOf("ssh", "mosh", "telnet", "local", "ble")
     var showBleScan by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val bleConnectPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(uiState.protocol) {
+        // Connecting needs BLUETOOTH_CONNECT even when the address is typed in.
+        if (uiState.protocol == "ble" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            bleConnectPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }
     val canSave = (uiState.protocol == "local" || uiState.hostname.isNotBlank()) &&
         (uiState.protocol != "mosh" || uiState.isMoshNetworkTimeoutValid)
 

@@ -333,7 +333,11 @@ class HostEditorViewModel @Inject constructor(
 
     fun updateProtocol(value: String) {
         val oldProtocol = _uiState.value.protocol
-        _uiState.update { it.copy(protocol = value, hasUnsavedChanges = true) }
+        _uiState.update {
+            // Bluetooth LE hosts have no port; give other protocols their default back.
+            val port = if (oldProtocol == "ble" && (it.port.isBlank() || it.port == "0")) getDefaultPort(value) else it.port
+            it.copy(protocol = value, port = port, hasUnsavedChanges = true)
+        }
 
         if (value == "mosh" && !InstallMosh.isInstalled(context)) {
             preMoshProtocol = oldProtocol

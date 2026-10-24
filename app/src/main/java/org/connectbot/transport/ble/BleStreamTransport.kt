@@ -70,9 +70,14 @@ class BleStreamTransport private constructor(
     private val lock = Mutex()
     private val readLock = Mutex()
     private val wakeWriter = Channel<Unit>(Channel.CONFLATED)
-    private val writerIdle = Channel<Unit>(Channel.CONFLATED)
+
+    /** Signalled whenever the writer took a frame from the link or the link failed. */
+    private val progress = Channel<Unit>(Channel.CONFLATED)
     private val inbound = Channel<ByteArray>(Channel.UNLIMITED)
     private val opened = CompletableDeferred<Unit>()
+
+    /** Completed by the writer once a CLOSE frame (and everything before it) was written. */
+    private val closeSent = CompletableDeferred<Unit>()
 
     @Volatile
     private var failure: TransportException? = null
@@ -89,10 +94,6 @@ class BleStreamTransport private constructor(
     private fun start() {
         scope.launch { readerLoop() }
         scope.launch { writerLoop() }
-        scope.launch {
-            val status = client.disconnected.await()
-            fail(TransportException("Bluetooth connection lost (status $status)"))
-        }
         wakeWriter.trySend(Unit)
     }
 
@@ -100,10 +101,12 @@ class BleStreamTransport private constructor(
         if (failure == null) failure = e
         opened.completeExceptionally(e)
         inbound.close(e)
-        writerIdle.trySend(Unit)
+        progress.trySend(Unit)
     }
 
     private suspend fun readerLoop() {
+        // The channel is closed on disconnect only after all received
+        // notifications are queued, so data and CLOSE are never lost to it.
         for (pkt in client.notifications) {
             val events = try {
                 lock.withLock { link.onPacket(pkt) }
@@ -111,6 +114,7 @@ class BleStreamTransport private constructor(
                 Timber.w("BLE protocol error: %s", e.message)
                 lock.withLock { link.close(BleStreamLink.CLOSE_PROTOCOL_ERROR, e.message ?: "") }
                 wakeWriter.trySend(Unit)
+                withTimeoutOrNull(CLOSE_FLUSH_MS) { closeSent.await() }
                 fail(TransportException("BLE protocol error: ${e.message}"))
                 return
             }
@@ -123,21 +127,28 @@ class BleStreamTransport private constructor(
             }
             wakeWriter.trySend(Unit)
         }
+        fail(TransportException("Bluetooth connection lost"))
     }
 
     private suspend fun writerLoop() {
         try {
             while (scope.isActive) {
-                val frame = lock.withLock { link.pollTransmit() }
+                val frame = lock.withLock {
+                    link.pollTransmit().also {
+                        if (it == null && link.isClosing) closeSent.complete(Unit)
+                    }
+                }
                 if (frame == null) {
-                    writerIdle.trySend(Unit)
                     wakeWriter.receive()
                     continue
                 }
                 client.writeFrame(frame)
+                progress.trySend(Unit)
             }
         } catch (e: TransportException) {
-            fail(e)
+            // A dropped link is reported by the reader once it drained the
+            // notifications received before the drop.
+            if (!client.disconnected.isCompleted) fail(e)
         }
     }
 
@@ -174,9 +185,11 @@ class BleStreamTransport private constructor(
                     false
                 }
             }
-            wakeWriter.trySend(Unit)
-            if (queued) return
-            writerIdle.receive()
+            if (queued) {
+                wakeWriter.trySend(Unit)
+                return
+            }
+            progress.receive()
         }
     }
 
@@ -184,9 +197,13 @@ class BleStreamTransport private constructor(
         if (closed) return
         closed = true
         if (failure == null) {
+            // Deliver queued SSH data (e.g. SSH_MSG_DISCONNECT) before CLOSE.
+            withTimeoutOrNull(CLOSE_FLUSH_MS) {
+                while (failure == null && lock.withLock { link.pendingOut() } > 0) progress.receive()
+            }
             lock.withLock { link.close(BleStreamLink.CLOSE_NORMAL, "client closed") }
             wakeWriter.trySend(Unit)
-            withTimeoutOrNull(CLOSE_FLUSH_MS) { writerIdle.receive() }
+            withTimeoutOrNull(CLOSE_FLUSH_MS) { closeSent.await() }
         }
         client.close()
         fail(TransportException("BLE stream closed"))
@@ -199,8 +216,17 @@ class BleStreamTransport private constructor(
         lateinit var rx: BluetoothGattCharacteristic
         private val opMutex = Mutex()
 
+        enum class Op { MTU, DISCOVER, DESCRIPTOR, WRITE }
+
+        private class Pending(val op: Op, val result: CompletableDeferred<Int>)
+
         @Volatile
-        private var pending: CompletableDeferred<Int>? = null
+        private var pending: Pending? = null
+
+        /** Completes the current operation only if [op] is the callback it waits for. */
+        private fun complete(op: Op, status: Int) {
+            pending?.takeIf { it.op == op }?.result?.complete(status)
+        }
 
         val connected = CompletableDeferred<Unit>()
         val disconnected = CompletableDeferred<Int>()
@@ -217,26 +243,26 @@ class BleStreamTransport private constructor(
                 val e = TransportException("Bluetooth connection failed (status $status)")
                 connected.completeExceptionally(e)
                 disconnected.complete(status)
-                pending?.completeExceptionally(e)
+                pending?.result?.completeExceptionally(e)
                 notifications.close()
             }
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) this.mtu = mtu
-            pending?.complete(status)
+            complete(Op.MTU, status)
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            pending?.complete(status)
+            complete(Op.DISCOVER, status)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            pending?.complete(status)
+            complete(Op.DESCRIPTOR, status)
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            pending?.complete(status)
+            complete(Op.WRITE, status)
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
@@ -252,10 +278,10 @@ class BleStreamTransport private constructor(
         }
 
         /** Runs one GATT operation; returns null if the stack refused to start it. */
-        private suspend fun op(name: String, timeoutMs: Long = OP_TIMEOUT_MS, start: () -> Boolean): Int? = opMutex.withLock {
+        private suspend fun op(op: Op, name: String, timeoutMs: Long = OP_TIMEOUT_MS, start: () -> Boolean): Int? = opMutex.withLock {
             if (disconnected.isCompleted) throw TransportException("Bluetooth connection lost")
             val result = CompletableDeferred<Int>()
-            pending = result
+            pending = Pending(op, result)
             try {
                 if (!start()) return@withLock null
                 withTimeout(timeoutMs) { result.await() }
@@ -272,21 +298,27 @@ class BleStreamTransport private constructor(
             }
         }
 
-        private suspend fun opRetrying(name: String, start: () -> Boolean): Int {
+        private suspend fun opRetrying(op: Op, name: String, start: () -> Boolean): Int {
             repeat(START_RETRIES) {
-                op(name, start = start)?.let { return it }
+                op(op, name, start = start)?.let { return it }
                 delay(START_RETRY_DELAY_MS)
             }
             throw TransportException("Bluetooth $name could not be started")
         }
 
+        /** Requests a large MTU; failures are not fatal, the current MTU is used then. */
         suspend fun requestMtu(): Int {
-            opRetrying("MTU request") { gatt.requestMtu(REQUESTED_MTU) }
+            try {
+                opRetrying(Op.MTU, "MTU request") { gatt.requestMtu(REQUESTED_MTU) }
+            } catch (e: TransportException) {
+                if (disconnected.isCompleted) throw e
+                Timber.w("MTU request failed (%s), using MTU %d", e.message, mtu)
+            }
             return mtu
         }
 
         suspend fun discover() {
-            val status = opRetrying("service discovery") { gatt.discoverServices() }
+            val status = opRetrying(Op.DISCOVER, "service discovery") { gatt.discoverServices() }
             if (status != BluetoothGatt.GATT_SUCCESS) throw TransportException("Service discovery failed (status $status)")
         }
 
@@ -295,7 +327,7 @@ class BleStreamTransport private constructor(
             if (!gatt.setCharacteristicNotification(tx, true)) throw TransportException("Cannot enable notifications")
             val cccd = tx.getDescriptor(CCCD_UUID) ?: throw TransportException("Server has no notification descriptor")
             val value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            val status = opRetrying("subscription") {
+            val status = opRetrying(Op.DESCRIPTOR, "subscription") {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     gatt.writeDescriptor(cccd, value) == BluetoothStatusCodes.SUCCESS
                 } else {
@@ -308,7 +340,7 @@ class BleStreamTransport private constructor(
 
         @Suppress("DEPRECATION")
         suspend fun writeFrame(frame: ByteArray) {
-            val status = opRetrying("write") {
+            val status = opRetrying(Op.WRITE, "write") {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     gatt.writeCharacteristic(rx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
                 } else {
@@ -375,7 +407,7 @@ class BleStreamTransport private constructor(
         @SuppressLint("MissingPermission")
         suspend fun connect(context: Context, address: String, dispatcher: CoroutineDispatcher, status: (String) -> Unit): BleStreamTransport {
             if (!hasPermission(context)) {
-                throw TransportException("Nearby devices permission is required for Bluetooth LE hosts")
+                throw TransportException("ConnectBot needs the Nearby devices permission for Bluetooth LE hosts: open the host in the editor or allow it in system settings")
             }
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
                 ?: throw TransportException("Bluetooth is not available on this device")
@@ -390,6 +422,7 @@ class BleStreamTransport private constructor(
                 status("Connecting to $mac over Bluetooth LE" + if (attempt > 1) " (attempt $attempt)" else "")
                 val client = GattClient()
                 val scope = CoroutineScope(SupervisorJob() + dispatcher)
+                var connected = false
                 try {
                     client.gatt = device.connectGatt(context, false, client, BluetoothDevice.TRANSPORT_LE)
                         ?: throw TransportException("Cannot create GATT connection")
@@ -408,6 +441,7 @@ class BleStreamTransport private constructor(
                     transport.start()
                     withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
                     status("Bluetooth LE link up (MTU $mtu)")
+                    connected = true
                     return transport
                 } catch (e: TimeoutCancellationException) {
                     lastError = TransportException("Bluetooth LE connection timed out")
@@ -415,10 +449,15 @@ class BleStreamTransport private constructor(
                     lastError = e
                 } catch (e: SecurityException) {
                     lastError = TransportException("Bluetooth permission denied", e)
+                } finally {
+                    // Also on cancellation: a leaked GattClient keeps the link and a
+                    // system-wide GATT client slot.
+                    if (!connected) {
+                        client.close()
+                        scope.cancel()
+                    }
                 }
                 Timber.w(lastError, "BLE connect attempt %d failed", attempt)
-                client.close()
-                scope.cancel()
                 // Retry only failures to establish the link, not server refusals.
                 val refused = lastError?.message.orEmpty()
                 if (refused.startsWith("Server") || refused.contains("ble-term")) break

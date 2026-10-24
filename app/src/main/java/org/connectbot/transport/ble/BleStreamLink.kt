@@ -73,8 +73,7 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
         outChunks.clear()
         outHeadOffset = 0
         outSize = 0
-        val msg = message.toByteArray(Charsets.UTF_8)
-        control.add(byteArrayOf(T_CLOSE.toByte(), reason.toByte()) + msg)
+        control.add(byteArrayOf(T_CLOSE.toByte(), reason.toByte()) + truncateUtf8(message, maxFrame - HEADER_LEN - 1))
     }
 
     /** Reports that [n] received bytes were handed to the application. */
@@ -167,6 +166,15 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
 
             else -> throw ProtocolException("unknown frame type $type")
         }
+    }
+
+    /** UTF-8 bytes of [text], cut at a character boundary to at most [max] bytes. */
+    private fun truncateUtf8(text: String, max: Int): ByteArray {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= max) return bytes
+        var end = max
+        while (end > 0 && (bytes[end].toInt() and 0xc0) == 0x80) end--
+        return bytes.copyOf(end)
     }
 
     private fun takeOutgoing(n: Int): ByteArray {

@@ -91,4 +91,14 @@ class BleStreamLinkTest {
         assertThatThrownBy { a.onPacket(byteArrayOf(2, 1, 0) + ByteArray(101)) }
             .isInstanceOf(BleStreamLink.ProtocolException::class.java)
     }
+
+    @Test
+    fun closeMessageFitsFrame() {
+        val a = BleStreamLink(20, 100)
+        a.pollTransmit()
+        a.close(BleStreamLink.CLOSE_PROTOCOL_ERROR, "é".repeat(40))
+        val pkt = a.pollTransmit()!!
+        assertThat(pkt.size).isLessThanOrEqualTo(20)
+        assertThat(String(pkt, 4, pkt.size - 4, Charsets.UTF_8)).isEqualTo("é".repeat(8))
+    }
 }
