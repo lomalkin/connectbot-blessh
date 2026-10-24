@@ -46,7 +46,7 @@ jobs:
           cp app/build/outputs/apk/oss/debug/*.apk "out/connectbot-ble-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}.apk"
           ls -l out
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: connectbot-ble-apk
           path: out/*.apk
