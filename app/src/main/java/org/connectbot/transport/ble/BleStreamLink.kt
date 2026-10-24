@@ -21,7 +21,7 @@ import java.util.ArrayDeque
 import java.util.UUID
 
 /**
- * BleStream v1 framing (see ble-term docs/PROTOCOL.md): one reliable byte
+ * BleStream v1 framing (see ble-term docs/protocol.md): one reliable byte
  * stream per direction over GATT, with credit based flow control and frame
  * reordering. Not thread safe; callers serialize access.
  */

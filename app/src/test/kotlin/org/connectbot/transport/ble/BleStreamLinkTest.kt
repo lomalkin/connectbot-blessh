@@ -38,7 +38,7 @@ class BleStreamLinkTest {
 
     @Test
     fun helloMatchesServerTestVector() {
-        // Same vector as the server's protocol tests (docs/PROTOCOL.md).
+        // Same vector as the server's protocol tests (docs/protocol.md).
         val link = BleStreamLink(20, 0x4000)
         assertThat(link.pollTransmit()).isEqualTo(hex("01 00 00 42 4c 54 4d 01 00 00 40 00 00"))
     }
