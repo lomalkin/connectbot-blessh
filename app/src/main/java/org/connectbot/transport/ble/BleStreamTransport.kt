@@ -1,6 +1,6 @@
 /*
  * ConnectBot: simple, powerful, open-source SSH client for Android
- * Copyright 2026 Kenny Root
+ * Copyright 2026 aluminique
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -105,6 +105,7 @@ class BleStreamTransport private constructor(
     }
 
     private suspend fun readerLoop() {
+        var warnedReorder = false
         // The channel is closed on disconnect only after all received
         // notifications are queued, so data and CLOSE are never lost to it.
         for (pkt in client.notifications) {
@@ -117,6 +118,10 @@ class BleStreamTransport private constructor(
                 withTimeoutOrNull(CLOSE_FLUSH_MS) { closeSent.await() }
                 fail(TransportException("BLE protocol error: ${e.message}"))
                 return
+            }
+            if (!warnedReorder && link.reordered > 0) {
+                warnedReorder = true
+                Timber.w("BLE frames arrive out of order; BleStream v1 assumes a single ATT bearer")
             }
             for (ev in events) {
                 when (ev) {
