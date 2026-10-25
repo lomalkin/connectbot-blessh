@@ -18,6 +18,8 @@ location to be on.
 
 ## Behaviour
 
+* Logins follow the server's SSH configuration (ble-term 0.2.0 and later):
+  what network SSH allows or refuses, BLE does too.
 * No Bluetooth pairing. A server that asks to pair (Debian 12 with EATT on)
   gets a hint instead of a retry loop: set `Channels = 1` on the server.
 * No port forwarding and no jump hosts. Keystroke timing obfuscation is off:
