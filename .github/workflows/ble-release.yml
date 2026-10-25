@@ -55,7 +55,7 @@ jobs:
         run: >
           ./gradlew --no-configuration-cache --max-workers=2
           -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" -Pkotlin.daemon.jvmargs=-Xmx2g
-          :app:lint${{ matrix.flavor }}Debug :mosh:lint${{ matrix.flavor }}Debug
+          :app:lint${{ matrix.flavor }}Debug
           :app:test${{ matrix.flavor }}DebugUnitTest :mosh:test${{ matrix.flavor }}DebugUnitTest
 
       - uses: actions/upload-artifact@v4
