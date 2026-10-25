@@ -38,9 +38,25 @@ jobs:
       - name: Upstream base for formatting checks
         run: git fetch --no-tags origin upstream-main:refs/remotes/origin/main
 
-      # What upstream's PR checks would require of the BLE changes.
-      - name: Formatting, unit tests (BLE)
-        run: ./gradlew --no-configuration-cache spotlessCheck :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
+      # What upstream's PR checks would require of the BLE changes. On
+      # failure the fixes Spotless would make are kept as an artifact.
+      - name: Formatting
+        run: |
+          if ! ./gradlew --no-configuration-cache spotlessCheck; then
+            ./gradlew --no-configuration-cache spotlessApply
+            git diff > spotless.patch
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: spotless-patch
+          path: spotless.patch
+          if-no-files-found: ignore
+
+      - name: Unit tests (BLE)
+        run: ./gradlew --no-configuration-cache :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
 
       - name: Signing key
         env:
