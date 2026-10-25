@@ -33,8 +33,9 @@ jobs:
         with:
           packages: 'cmdline-tools;latest platform-tools'
 
-      - name: Unit tests (BLE)
-        run: ./gradlew --no-configuration-cache :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
+      # What upstream's PR checks would require of the BLE changes.
+      - name: Formatting, unit tests (BLE)
+        run: ./gradlew --no-configuration-cache spotlessCheck :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
 
       - name: Signing key
         env:
