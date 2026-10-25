@@ -11,10 +11,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  # The checks upstream's CI runs on a pull request (lint and all unit tests
-  # of both flavors; coverage thresholds are not enforced there either).
+  # The checks upstream's CI runs on a pull request (`./gradlew check`: lint
+  # and the unit tests of both flavors), split by flavor: on the smaller
+  # runners of a private repository one job for everything runs out of
+  # memory.
   upstream-checks:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [Oss, Google]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,12 +39,6 @@ jobs:
         with:
           packages: 'cmdline-tools;latest platform-tools'
 
-      - name: Upstream base for formatting checks
-        run: git fetch --no-tags origin upstream-main:refs/remotes/origin/main
-
-      # Private repositories get smaller runners than upstream's public CI;
-      # without swap the Gradle, Kotlin and test JVMs together run out of
-      # memory.
       - name: Swap
         run: |
           sudo fallocate -l 8G /swapfile2
@@ -47,13 +47,17 @@ jobs:
           sudo swapon /swapfile2
           free -g
 
-      - name: Checks and unit tests
-        run: ./gradlew --no-configuration-cache check -x :app:koverVerify
+      - name: Lint and unit tests (${{ matrix.flavor }})
+        run: >
+          ./gradlew --no-configuration-cache --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" -Pkotlin.daemon.jvmargs=-Xmx2g
+          :app:lint${{ matrix.flavor }}Debug :mosh:lint${{ matrix.flavor }}Debug
+          :app:test${{ matrix.flavor }}DebugUnitTest :mosh:test${{ matrix.flavor }}DebugUnitTest
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: check-reports
+          name: check-reports-${{ matrix.flavor }}
           path: |
             app/build/reports/lint-results-*.html
             app/build/reports/tests/
