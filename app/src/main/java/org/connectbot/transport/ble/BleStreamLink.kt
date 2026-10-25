@@ -1,6 +1,6 @@
 /*
  * ConnectBot: simple, powerful, open-source SSH client for Android
- * Copyright 2026 Kenny Root
+ * Copyright 2026 aluminique
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,10 @@ import java.util.UUID
  * BleStream v1 framing (see ble-term docs/protocol.md): one reliable byte
  * stream per direction over GATT, with credit based flow control and frame
  * reordering. Not thread safe; callers serialize access.
+ *
+ * Until the peer's HELLO has arrived, only a HELLO or a CLOSE with sequence
+ * number 0 is accepted and every other packet is ignored: on a reused
+ * connection, frames of the previous session can still arrive.
  */
 class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
     sealed class Event {
@@ -50,6 +54,14 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
     private var outSize = 0
 
     var isOpen = false
+        private set
+
+    /** Frames that arrived ahead of their turn; v1 expects none (one ATT bearer). */
+    var reordered = 0L
+        private set
+
+    /** Packets ignored because they arrived before the peer's HELLO. */
+    var ignored = 0L
         private set
     var isClosing = false
         private set
@@ -78,7 +90,8 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
 
     /** Reports that [n] received bytes were handed to the application. */
     fun consumed(n: Int) {
-        consumed += n
+        // Never return more credit than was used, whatever the caller claims.
+        consumed += minOf(n.toLong(), recvWindow - recvAllowance - consumed)
         val threshold = maxOf(recvWindow / 4, 1)
         if (consumed >= threshold && !isClosing) {
             val credit = consumed
@@ -109,6 +122,10 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
 
     /** Processes one received packet and returns the resulting events in stream order. */
     fun onPacket(pkt: ByteArray): List<Event> {
+        if (!isOpen && !startsSession(pkt)) {
+            ignored++
+            return emptyList()
+        }
         if (pkt.size < HEADER_LEN) throw ProtocolException("frame shorter than header")
         val seq = (pkt[1].toInt() and 0xff) or ((pkt[2].toInt() and 0xff) shl 8)
         val events = ArrayList<Event>()
@@ -118,6 +135,7 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
                 throw ProtocolException("sequence error: expected $rxSeq, got $seq")
             }
             reorder[seq] = pkt.copyOf()
+            reordered++
             return events
         }
         rxSeq = (rxSeq + 1) and 0xffff
@@ -152,14 +170,12 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
             }
 
             T_DATA -> {
-                if (!isOpen) throw ProtocolException("frame received before HELLO")
                 if (p.size > recvAllowance) throw ProtocolException("peer exceeded the receive window")
                 recvAllowance -= p.size
                 if (p.isNotEmpty()) events.add(Event.Data(p))
             }
 
             T_CREDIT -> {
-                if (!isOpen) throw ProtocolException("frame received before HELLO")
                 if (p.size != 4) throw ProtocolException("malformed CREDIT")
                 sendCredit += readLe32(p, 0)
             }
@@ -219,6 +235,10 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
         const val CLOSE_TIMEOUT = 4
 
         private val MAGIC = "BLTM".toByteArray(Charsets.US_ASCII)
+
+        /** A HELLO or a CLOSE (e.g. busy) with sequence number 0. */
+        private fun startsSession(pkt: ByteArray): Boolean = pkt.size >= HEADER_LEN &&
+            (pkt[0].toInt() == T_HELLO || pkt[0].toInt() == T_CLOSE) && pkt[1].toInt() == 0 && pkt[2].toInt() == 0
 
         private fun helloPayload(window: Int): ByteArray = byteArrayOf(T_HELLO.toByte()) + MAGIC + byteArrayOf(VERSION.toByte(), 0) + le32(window.toLong())
 

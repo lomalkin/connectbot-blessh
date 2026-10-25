@@ -1,6 +1,6 @@
 /*
  * ConnectBot: simple, powerful, open-source SSH client for Android
- * Copyright 2026 Kenny Root
+ * Copyright 2026 aluminique
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -90,6 +90,52 @@ class BleStreamLinkTest {
         a.onPacket(hex("01 00 00 42 4c 54 4d 01 00 00 40 00 00"))
         assertThatThrownBy { a.onPacket(byteArrayOf(2, 1, 0) + ByteArray(101)) }
             .isInstanceOf(BleStreamLink.ProtocolException::class.java)
+    }
+
+    @Test
+    fun ignoresLeftoversBeforeHello() {
+        val a = BleStreamLink(20, 100)
+        // Late frames of an earlier session on the same connection.
+        listOf(hex("04 10 00 00 6f 6b"), hex("03 11 00 08 00 00 00"), hex("02 00 00 01"), hex("00 65 73"), ByteArray(0))
+            .forEach { assertThat(a.onPacket(it)).isEmpty() }
+        assertThat(a.ignored).isEqualTo(5)
+        assertThat(a.isOpen).isFalse()
+        assertThat(a.onPacket(hex("01 00 00 42 4c 54 4d 01 00 00 40 00 00"))).containsExactly(BleStreamLink.Event.Open(0x4000))
+        // After HELLO the usual checks apply again.
+        assertThatThrownBy { a.onPacket(hex("04 f4 01 00")) }.isInstanceOf(BleStreamLink.ProtocolException::class.java)
+    }
+
+    @Test
+    fun acceptsBusyWithoutHello() {
+        val a = BleStreamLink(20, 100)
+        assertThat(a.onPacket(hex("04 00 00 01 62 75 73 79"))).containsExactly(BleStreamLink.Event.Closed(BleStreamLink.CLOSE_BUSY, "busy"))
+    }
+
+    @Test
+    fun countsReorderedFrames() {
+        val a = BleStreamLink(20, 10_000)
+        val b = BleStreamLink(20, 10_000)
+        pump(a, b)
+        pump(b, a)
+        a.send(ByteArray(100) { it.toByte() })
+        val pkts = generateSequence { a.pollTransmit() }.toMutableList()
+        assertThat(data(pkts.reversed().flatMap { b.onPacket(it) })).isEqualTo(ByteArray(100) { it.toByte() })
+        assertThat(b.reordered).isEqualTo(pkts.size - 1L)
+    }
+
+    @Test
+    fun returnsCreditOnlyForReceivedData() {
+        val a = BleStreamLink(20, 100)
+        val b = BleStreamLink(20, 8)
+        pump(a, b)
+        pump(b, a)
+        b.consumed(1000)
+        assertThat(b.pollTransmit()).isNull()
+        a.send(ByteArray(16) { 1 })
+        assertThat(data(pump(a, b)).size).isEqualTo(8)
+        b.consumed(Int.MAX_VALUE)
+        pump(b, a)
+        assertThat(data(pump(a, b)).size).isEqualTo(8)
     }
 
     @Test
