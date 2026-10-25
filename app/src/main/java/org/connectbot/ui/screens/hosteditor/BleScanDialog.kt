@@ -19,13 +19,16 @@ package org.connectbot.ui.screens.hosteditor
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.os.ParcelUuid
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,6 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
+import kotlinx.coroutines.delay
 import org.connectbot.R
 import org.connectbot.transport.ble.BleStreamLink
 import timber.log.Timber
@@ -72,17 +77,42 @@ private fun hasBlePermissions(context: Context): Boolean = blePermissions().all 
     ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
 }
 
-private sealed interface ScanState {
+internal sealed interface ScanState {
     data object NeedsPermission : ScanState
 
     data object Denied : ScanState
 
     data object Unavailable : ScanState
 
+    data object BluetoothOff : ScanState
+
     data object Scanning : ScanState
+
+    /** The scan ran for [SCAN_TIMEOUT_MS] and stopped. */
+    data object Finished : ScanState
 
     data class Failed(val code: Int) : ScanState
 }
+
+private const val SCAN_TIMEOUT_MS = 30_000L
+
+/** The state to start (or restart) scanning in. */
+internal fun initialScanState(hasPermission: Boolean, hasAdapter: Boolean, enabled: Boolean): ScanState = when {
+    !hasPermission -> ScanState.NeedsPermission
+    !hasAdapter -> ScanState.Unavailable
+    !enabled -> ScanState.BluetoothOff
+    else -> ScanState.Scanning
+}
+
+/** Android 11 and earlier report scan results only while location is on. */
+internal fun needsLocationHint(sdk: Int, locationEnabled: Boolean): Boolean = sdk <= Build.VERSION_CODES.R && !locationEnabled
+
+private fun currentScanState(context: Context): ScanState {
+    val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+    return initialScanState(hasBlePermissions(context), adapter != null, adapter?.isEnabled == true)
+}
+
+private fun locationEnabled(context: Context): Boolean = context.getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.isLocationEnabled(it) } ?: true
 
 /**
  * Scans for servers advertising the ble-term GATT service and lets the user
@@ -95,13 +125,14 @@ fun BleScanDialog(
     onSelect: (BleServer) -> Unit,
 ) {
     val context = LocalContext.current
-    var state by remember {
-        mutableStateOf<ScanState>(if (hasBlePermissions(context)) ScanState.Scanning else ScanState.NeedsPermission)
-    }
+    var state by remember { mutableStateOf(currentScanState(context)) }
     val servers = remember { mutableStateListOf<BleServer>() }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        state = if (hasBlePermissions(context)) ScanState.Scanning else ScanState.Denied
+        state = if (hasBlePermissions(context)) currentScanState(context) else ScanState.Denied
+    }
+    val enableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        state = currentScanState(context)
     }
 
     LaunchedEffect(state) {
@@ -109,6 +140,10 @@ fun BleScanDialog(
     }
 
     if (state == ScanState.Scanning) {
+        LaunchedEffect(Unit) {
+            delay(SCAN_TIMEOUT_MS)
+            state = ScanState.Finished
+        }
         DisposableEffect(Unit) {
             val stop = startScan(
                 context,
@@ -132,12 +167,19 @@ fun BleScanDialog(
 
                     ScanState.Unavailable -> Text(stringResource(R.string.ble_scan_unavailable))
 
+                    ScanState.BluetoothOff -> Text(stringResource(R.string.ble_scan_bluetooth_off))
+
                     is ScanState.Failed -> Text(stringResource(R.string.ble_scan_failed, s.code))
+
+                    ScanState.Finished -> if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_none_found))
 
                     ScanState.Scanning, ScanState.NeedsPermission -> {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
                         if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_searching))
                     }
+                }
+                if ((state == ScanState.Scanning || state == ScanState.Finished) && needsLocationHint(Build.VERSION.SDK_INT, locationEnabled(context))) {
+                    Text(stringResource(R.string.ble_scan_location_hint), modifier = Modifier.padding(top = 8.dp))
                 }
                 LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                     items(servers, key = { it.address }) { server ->
@@ -150,7 +192,19 @@ fun BleScanDialog(
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            when (state) {
+                ScanState.BluetoothOff -> TextButton(onClick = { enableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }) {
+                    Text(stringResource(R.string.ble_scan_turn_on))
+                }
+
+                ScanState.Finished, is ScanState.Failed -> TextButton(onClick = { state = currentScanState(context) }) {
+                    Text(stringResource(R.string.ble_scan_again))
+                }
+
+                else -> {}
+            }
+        },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.button_cancel)) }
         },
@@ -167,7 +221,7 @@ private fun startScan(
     val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     val scanner = adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
     if (scanner == null) {
-        onError(ScanState.Unavailable)
+        onError(if (adapter == null) ScanState.Unavailable else ScanState.BluetoothOff)
         return {}
     }
     val callback = object : ScanCallback() {

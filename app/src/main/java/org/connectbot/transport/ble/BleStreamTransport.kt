@@ -28,11 +28,15 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -48,11 +52,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import org.connectbot.R
 import org.connectbot.sshlib.transport.Transport
 import org.connectbot.sshlib.transport.TransportException
 import timber.log.Timber
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * sshlib [Transport] over a ble-term server's BleStream GATT service.
@@ -234,6 +240,15 @@ class BleStreamTransport private constructor(
             lock.withLock { link.close(BleStreamLink.CLOSE_NORMAL, "client closed") }
             wakeWriter.trySend(Unit)
             withTimeoutOrNull(CLOSE_FLUSH_MS) { closeSent.await() }
+            // Leave the subscription off, so the next connection's enabling
+            // write changes it (see enableNotifications).
+            withTimeoutOrNull(CLOSE_FLUSH_MS) {
+                try {
+                    client.writeCccd(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
+                } catch (e: TransportException) {
+                    Timber.d(e, "Unsubscribing failed")
+                }
+            }
         }
         client.close()
         fail(TransportException("BLE stream closed"))
@@ -352,11 +367,24 @@ class BleStreamTransport private constructor(
             if (status != BluetoothGatt.GATT_SUCCESS) throw TransportException("Service discovery failed (status $status)")
         }
 
-        @Suppress("DEPRECATION")
+        lateinit var tx: BluetoothGattCharacteristic
+
+        /**
+         * Subscribes to [tx]. The descriptor is cleared first: a server on
+         * BlueZ before 5.69 only notices a subscription when the value
+         * changes, and a previous session on the same link may have left it
+         * set.
+         */
         suspend fun enableNotifications(tx: BluetoothGattCharacteristic) {
+            this.tx = tx
             if (!gatt.setCharacteristicNotification(tx, true)) throw TransportException("Cannot enable notifications")
+            writeCccd(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
+            writeCccd(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+        }
+
+        @Suppress("DEPRECATION")
+        suspend fun writeCccd(value: ByteArray) {
             val cccd = tx.getDescriptor(CCCD_UUID) ?: throw TransportException("Server has no notification descriptor")
-            val value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
             val status = opRetrying(Op.DESCRIPTOR, "subscription") {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     gatt.writeDescriptor(cccd, value) == BluetoothStatusCodes.SUCCESS
@@ -421,7 +449,7 @@ class BleStreamTransport private constructor(
             return hex.chunked(2).joinToString(":")
         }
 
-        private fun describeClose(reason: Int, message: String): String {
+        internal fun describeClose(reason: Int, message: String): String {
             val what = when (reason) {
                 BleStreamLink.CLOSE_NORMAL -> "Server closed the session"
                 BleStreamLink.CLOSE_BUSY -> "Server is busy with another client"
@@ -450,9 +478,42 @@ class BleStreamTransport private constructor(
                 ?: throw TransportException("Invalid Bluetooth address: $address")
             val device = adapter.getRemoteDevice(mac)
 
+            // A server that still has EATT on (BlueZ before 5.67) asks the phone
+            // to pair; ble-term never pairs, the link then drops.
+            val pairingRequested = AtomicBoolean(false)
+            val bondWatch = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, intent: Intent) {
+                    val d = IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
+                    if (d?.address == mac && state == BluetoothDevice.BOND_BONDING) pairingRequested.set(true)
+                }
+            }
+            ContextCompat.registerReceiver(context, bondWatch, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED)
+            try {
+                return connectAttempts(context, device, mac, dispatcher, status) { pairingRequested.get() }
+            } finally {
+                context.unregisterReceiver(bondWatch)
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        private suspend fun connectAttempts(
+            context: Context,
+            device: BluetoothDevice,
+            mac: String,
+            dispatcher: CoroutineDispatcher,
+            status: (String) -> Unit,
+            pairingRequested: () -> Boolean,
+        ): BleStreamTransport {
             var lastError: TransportException? = null
             for (attempt in 1..CONNECT_ATTEMPTS) {
-                status("Connecting to $mac over Bluetooth LE" + if (attempt > 1) " (attempt $attempt)" else "")
+                status(
+                    if (attempt == 1) {
+                        context.getString(R.string.ble_status_connecting, mac)
+                    } else {
+                        context.getString(R.string.ble_status_connecting_attempt, mac, attempt)
+                    },
+                )
                 val client = GattClient()
                 val scope = CoroutineScope(SupervisorJob() + dispatcher)
                 var connected = false
@@ -473,7 +534,7 @@ class BleStreamTransport private constructor(
                     val transport = BleStreamTransport(client, scope, mtu - 3)
                     transport.start()
                     withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
-                    status("Bluetooth LE link up (MTU $mtu)")
+                    status(context.getString(R.string.ble_status_link_up, mtu))
                     connected = true
                     return transport
                 } catch (e: TimeoutCancellationException) {
@@ -491,12 +552,17 @@ class BleStreamTransport private constructor(
                     }
                 }
                 Timber.w(lastError, "BLE connect attempt %d failed", attempt)
-                // Retry only failures to establish the link, not server refusals.
-                val refused = lastError?.message.orEmpty()
-                if (refused.startsWith("Server") || refused.contains("ble-term")) break
+                if (pairingRequested()) throw TransportException(context.getString(R.string.ble_error_pairing_requested))
+                if (!shouldRetry(lastError)) break
                 delay(500)
             }
             throw lastError ?: TransportException("Bluetooth LE connection failed")
+        }
+
+        /** Retry only failures to establish the link, not refusals by the server. */
+        internal fun shouldRetry(error: TransportException?): Boolean {
+            val message = error?.message.orEmpty()
+            return !message.startsWith("Server") && !message.contains("ble-term")
         }
     }
 }
