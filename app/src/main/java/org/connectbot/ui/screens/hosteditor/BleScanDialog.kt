@@ -129,8 +129,11 @@ fun BleScanDialog(
             Column {
                 when (val s = state) {
                     ScanState.Denied -> Text(stringResource(R.string.ble_scan_permission_denied))
+
                     ScanState.Unavailable -> Text(stringResource(R.string.ble_scan_unavailable))
+
                     is ScanState.Failed -> Text(stringResource(R.string.ble_scan_failed, s.code))
+
                     ScanState.Scanning, ScanState.NeedsPermission -> {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
                         if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_searching))
