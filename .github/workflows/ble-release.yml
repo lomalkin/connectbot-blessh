@@ -11,6 +11,43 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The checks upstream's CI runs on a pull request (lint and all unit tests
+  # of both flavors; coverage thresholds are not enforced there either).
+  upstream-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'cmdline-tools;latest platform-tools'
+
+      - name: Upstream base for formatting checks
+        run: git fetch --no-tags origin upstream-main:refs/remotes/origin/main
+
+      - name: Checks and unit tests
+        run: ./gradlew --no-configuration-cache check -x :app:koverVerify
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: check-reports
+          path: |
+            app/build/reports/lint-results-*.html
+            app/build/reports/tests/
+          if-no-files-found: ignore
+
   apk:
     runs-on: ubuntu-latest
     permissions:
