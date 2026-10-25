@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Connect over Bluetooth LE to [ble-term](https://github.com/aluminique/ble-term-server) servers (protocol `ble`, see `docs/ble.md`)
+
 ## [1.11.1][1.11.1]
 
 ### Added
