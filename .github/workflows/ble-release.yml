@@ -36,6 +36,17 @@ jobs:
       - name: Upstream base for formatting checks
         run: git fetch --no-tags origin upstream-main:refs/remotes/origin/main
 
+      # Private repositories get smaller runners than upstream's public CI;
+      # without swap the Gradle, Kotlin and test JVMs together run out of
+      # memory.
+      - name: Swap
+        run: |
+          sudo fallocate -l 8G /swapfile2
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2 >/dev/null
+          sudo swapon /swapfile2
+          free -g
+
       - name: Checks and unit tests
         run: ./gradlew --no-configuration-cache check -x :app:koverVerify
 
