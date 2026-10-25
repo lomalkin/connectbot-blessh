@@ -1,0 +1,14 @@
+// Fork-only build settings for ConnectBot BLE release builds, applied by the
+// fork's CI (`--init-script`); the app's own build files stay as upstream
+// has them. Release builds get their own application ID, so they install
+// next to ConnectBot, and their own name.
+allprojects {
+    plugins.withId('com.android.application') {
+        androidComponents {
+            onVariants(selector().withBuildType('release')) { variant ->
+                variant.applicationId.set('io.github.aluminique.connectbot.ble')
+            }
+        }
+        android.sourceSets.release.res.srcDirs += "${rootDir}/ci/res"
+    }
+}

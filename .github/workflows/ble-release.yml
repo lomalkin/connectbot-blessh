@@ -1,0 +1,76 @@
+# ConnectBot BLE: signed release builds of this fork. Runs on the `release`
+# branch (the `ble` branch plus fork-only files) and on tags `ble-r*`, which
+# publish a GitHub release. Upstream's workflows are disabled in this
+# repository.
+name: ble-release
+
+on:
+  push:
+    branches: [release]
+    tags: ['ble-r*']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'cmdline-tools;latest platform-tools'
+
+      - name: Unit tests (BLE)
+        run: ./gradlew --no-configuration-cache :app:testOssDebugUnitTest --tests 'org.connectbot.transport.ble.*'
+
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.p12"
+
+      # The app's build already signs release builds when these properties
+      # are set.
+      - name: Build signed release APK
+        env:
+          ORG_GRADLE_PROJECT_keystoreFile: ${{ runner.temp }}/release.p12
+          ORG_GRADLE_PROJECT_keystorePassword: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_keystoreAlias: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
+        run: ./gradlew --no-configuration-cache --init-script ci/ble-release.init.gradle :app:assembleOssRelease
+
+      - name: Collect APK
+        run: |
+          rm -f "$RUNNER_TEMP/release.p12"
+          mkdir -p out
+          name=connectbot-ble-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}
+          cp app/build/outputs/apk/oss/release/*.apk "out/$name.apk"
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "out/$name.apk" | grep -E 'SHA-256|Signer #1 certificate DN'
+          aapt=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
+          "$aapt" dump badging "out/$name.apk" | grep -E "^package:|application-label:"
+          (cd out && sha256sum *.apk > SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connectbot-ble-apk
+          path: out/
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
+          printf 'ConnectBot BLE, based on ConnectBot %s plus the Bluetooth LE transport.\n\nSigning certificate SHA-256: D0:94:1A:C1:69:B6:D0:D5:49:65:74:9B:BD:AD:8D:D3:73:32:67:EF:3C:F6:8D:AE:2A:4D:81:61:40:34:B1:64\n' "$base" > notes.md
+          gh release create "$GITHUB_REF_NAME" out/* --title "ConnectBot BLE ${GITHUB_REF_NAME#ble-}" --notes-file notes.md
