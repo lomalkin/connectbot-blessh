@@ -101,6 +101,14 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
         }
     }
 
+    /**
+     * Queues a liveness probe: a CREDIT frame granting nothing, valid in
+     * every BleStream v1 session. The link never sends CREDIT 0 otherwise.
+     */
+    fun probe() {
+        if (isOpen && !isClosing) control.add(byteArrayOf(T_CREDIT.toByte()) + le32(0))
+    }
+
     /** Returns the next frame to transmit, or null if nothing can be sent now. */
     fun pollTransmit(): ByteArray? {
         val body: ByteArray = control.pollFirst() ?: run {
@@ -235,6 +243,10 @@ class BleStreamLink(maxFrame: Int, private val recvWindow: Int) {
         const val CLOSE_TIMEOUT = 4
 
         private val MAGIC = "BLTM".toByteArray(Charsets.US_ASCII)
+
+        /** Whether [frame] is a probe from [probe], to be written with response. */
+        fun isProbe(frame: ByteArray): Boolean = frame.size == HEADER_LEN + 4 && frame[0].toInt() == T_CREDIT &&
+            frame.copyOfRange(HEADER_LEN, frame.size).all { it.toInt() == 0 }
 
         /** A HELLO or a CLOSE (e.g. busy) with sequence number 0. */
         private fun startsSession(pkt: ByteArray): Boolean = pkt.size >= HEADER_LEN &&

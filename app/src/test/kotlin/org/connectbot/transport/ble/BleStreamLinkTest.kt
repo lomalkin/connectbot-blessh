@@ -139,6 +139,24 @@ class BleStreamLinkTest {
     }
 
     @Test
+    fun probeIsAnEmptyCredit() {
+        val a = BleStreamLink(20, 100)
+        val b = BleStreamLink(20, 100)
+        a.probe()
+        pump(a, b)
+        pump(b, a)
+        a.probe()
+        val probe = a.pollTransmit()!!
+        assertThat(BleStreamLink.isProbe(probe)).isTrue()
+        assertThat(b.onPacket(probe)).isEmpty()
+        // Regular credit is never mistaken for a probe.
+        b.send(ByteArray(100))
+        assertThat(data(pump(b, a)).size).isEqualTo(100)
+        a.consumed(100)
+        assertThat(BleStreamLink.isProbe(a.pollTransmit()!!)).isFalse()
+    }
+
+    @Test
     fun closeMessageFitsFrame() {
         val a = BleStreamLink(20, 100)
         a.pollTransmit()
