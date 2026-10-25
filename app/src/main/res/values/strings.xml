@@ -2432,20 +2432,38 @@
     <string name="keyboard_builtin_presets_help">Built-in presets stay unchanged. Editing creates your own copy.</string>
     <!-- Badge distinguishing an immutable keyboard template from a saved layout. -->
     <string name="keyboard_builtin_preset">Built-in preset</string>
-	<!-- Placeholder for a Bluetooth device address in connection format hints, e.g. "username@bluetooth-address" -->
-	<string name="format_ble_address">bluetooth-address</string>
-	<!-- Host editor label of the host field when the protocol is Bluetooth LE (ble) -->
-	<string name="hostpref_ble_address_title">Bluetooth address</string>
-	<!-- Host editor button that opens a dialog listing nearby ble-term servers -->
-	<string name="ble_scan_button">Scan for Bluetooth LE servers</string>
-	<!-- Title of the dialog that lists nearby ble-term servers -->
-	<string name="ble_scan_title">Nearby ble-term servers</string>
-	<!-- Shown in the scan dialog while no server has been found yet -->
-	<string name="ble_scan_searching">Searching…</string>
-	<!-- Shown in the scan dialog when the Nearby devices / location permission was denied -->
-	<string name="ble_scan_permission_denied">Bluetooth permission was denied. Allow \"Nearby devices\" for ConnectBot in system settings.</string>
-	<!-- Shown in the scan dialog when Bluetooth is off or missing -->
-	<string name="ble_scan_unavailable">Bluetooth is turned off or not available.</string>
-	<!-- Shown in the scan dialog when the system refused to start a scan; %1$d is the error code -->
-	<string name="ble_scan_failed">Bluetooth scan failed (error %1$d).</string>
+    <!-- Placeholder for a Bluetooth device address in connection format hints, e.g. "username@bluetooth-address" -->
+    <string name="format_ble_address">bluetooth-address</string>
+    <!-- Host editor label of the host field when the protocol is Bluetooth LE (ble) -->
+    <string name="hostpref_ble_address_title">Bluetooth address</string>
+    <!-- Host editor button that opens a dialog listing nearby ble-term servers -->
+    <string name="ble_scan_button">Scan for Bluetooth LE servers</string>
+    <!-- Title of the dialog that lists nearby ble-term servers -->
+    <string name="ble_scan_title">Nearby ble-term servers</string>
+    <!-- Shown in the scan dialog while no server has been found yet -->
+    <string name="ble_scan_searching">Searching…</string>
+    <!-- Shown in the scan dialog when the Nearby devices / location permission was denied -->
+    <string name="ble_scan_permission_denied">Bluetooth permission was denied. Allow \"Nearby devices\" for ConnectBot in system settings.</string>
+    <!-- Shown in the scan dialog when the device has no Bluetooth -->
+    <string name="ble_scan_unavailable">Bluetooth is not available on this device.</string>
+    <!-- Shown in the scan dialog when Bluetooth is switched off -->
+    <string name="ble_scan_bluetooth_off">Bluetooth is off.</string>
+    <!-- Scan dialog button that asks the system to switch Bluetooth on -->
+    <string name="ble_scan_turn_on">Turn on</string>
+    <!-- Shown in the scan dialog when a scan ended without finding a server -->
+    <string name="ble_scan_none_found">No ble-term server found. Check that it is on and nearby.</string>
+    <!-- Scan dialog button that starts another scan -->
+    <string name="ble_scan_again">Scan again</string>
+    <!-- Shown in the scan dialog on Android 11 and earlier while location is off -->
+    <string name="ble_scan_location_hint">Turn on location: Android 11 and earlier find Bluetooth devices only with location on.</string>
+    <!-- Shown in the scan dialog when the system refused to start a scan; %1$d is the error code -->
+    <string name="ble_scan_failed">Bluetooth scan failed (error %1$d).</string>
+    <!-- Terminal line while connecting to a Bluetooth LE host; %1$s is its Bluetooth address -->
+    <string name="ble_status_connecting">Connecting to %1$s over Bluetooth LE</string>
+    <!-- Terminal line when a connection to a Bluetooth LE host is retried; %1$s is its address, %2$d the attempt number -->
+    <string name="ble_status_connecting_attempt">Connecting to %1$s over Bluetooth LE (attempt %2$d)</string>
+    <!-- Terminal line once the Bluetooth LE link to the server works; %1$d is the negotiated MTU in bytes -->
+    <string name="ble_status_link_up">Bluetooth LE link up (MTU %1$d), starting SSH</string>
+    <!-- Error when a Bluetooth LE server asked to pair, which ble-term servers must not do; "Channels = 1" is a setting name, do not translate it -->
+    <string name="ble_error_pairing_requested">The server asked to pair, which ble-term does not use. On Debian 12 servers, add \"Channels = 1\" to the [GATT] section of /etc/bluetooth/main.conf.</string>
 </resources>
