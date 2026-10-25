@@ -231,6 +231,8 @@ data class Host(
             username = username,
             hostname = hostname,
             port = 0,
+            // The radio link is slow, so compression pays off.
+            compression = true,
         )
 
         /**

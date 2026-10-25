@@ -152,6 +152,9 @@ class HostEditorViewModel @Inject constructor(
     private var moshInstallJob: Job? = null
     private var preMoshProtocol: String = "ssh"
     private var nicknameAutofillEnabled = hostId == EntityIds.NONE
+
+    // New hosts get compression on Bluetooth LE, where the link is slow, until the user sets it.
+    private var compressionAutofillEnabled = hostId == EntityIds.NONE
     private var hasEnteredNickname = false
 
     init {
@@ -336,7 +339,8 @@ class HostEditorViewModel @Inject constructor(
         _uiState.update {
             // Bluetooth LE hosts have no port; give other protocols their default back.
             val port = if (oldProtocol == "ble" && (it.port.isBlank() || it.port == "0")) getDefaultPort(value) else it.port
-            it.copy(protocol = value, port = port, hasUnsavedChanges = true)
+            val compression = if (compressionAutofillEnabled) value == "ble" else it.compression
+            it.copy(protocol = value, port = port, compression = compression, hasUnsavedChanges = true)
         }
 
         if (value == "mosh" && !InstallMosh.isInstalled(context)) {
@@ -412,6 +416,7 @@ class HostEditorViewModel @Inject constructor(
     }
 
     fun updateCompression(value: Boolean) {
+        compressionAutofillEnabled = false
         _uiState.update { it.copy(compression = value, hasUnsavedChanges = true) }
     }
 

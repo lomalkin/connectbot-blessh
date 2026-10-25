@@ -40,6 +40,7 @@ class BleSshTest {
         assertThat(host.username).isEqualTo("pi")
         assertThat(host.hostname).isEqualTo("B8:27:EB:2D:1D:59")
         assertThat(host.port).isEqualTo(0)
+        assertThat(host.compression).isTrue()
     }
 
     @Test

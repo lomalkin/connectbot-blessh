@@ -26,7 +26,9 @@ location to be on.
   it would use much of the link's bandwidth.
 * A session that is quiet for 20 s is probed with a write that the server
   must acknowledge, so a server whose daemon went away is noticed.
-* Throughput is tens of kilobytes per second.
+* Throughput is tens of kilobytes per second. New BLE hosts therefore have
+  compression on (the server must allow it; OpenSSH does by default); it
+  can be turned off per host.
 
 ## Code and tests
 
