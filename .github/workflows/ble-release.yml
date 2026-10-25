@@ -39,13 +39,17 @@ jobs:
         with:
           packages: 'cmdline-tools;latest platform-tools'
 
-      - name: Swap
+      # Disk space for the build and swap for the JVMs: remove preinstalled
+      # toolchains this build does not use.
+      - name: Disk space and swap
         run: |
-          sudo fallocate -l 8G /swapfile2
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules
+          sudo fallocate -l 4G /swapfile2
           sudo chmod 600 /swapfile2
           sudo mkswap /swapfile2 >/dev/null
           sudo swapon /swapfile2
           free -g
+          df -h /
 
       - name: Lint and unit tests (${{ matrix.flavor }})
         run: >
