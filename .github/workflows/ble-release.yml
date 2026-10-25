@@ -56,9 +56,9 @@ jobs:
           mkdir -p out
           name=connectbot-ble-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}
           cp app/build/outputs/apk/oss/release/*.apk "out/$name.apk"
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "out/$name.apk" | grep -E 'SHA-256|Signer #1 certificate DN'
-          aapt=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
-          "$aapt" dump badging "out/$name.apk" | grep -E "^package:|application-label:"
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$tools/apksigner" verify --print-certs "out/$name.apk" | grep -E 'SHA-256|Signer #1 certificate DN'
+          "$tools/aapt2" dump badging "out/$name.apk" | grep -E "^package:|application-label:"
           (cd out && sha256sum *.apk > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
