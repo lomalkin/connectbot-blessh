@@ -31,6 +31,7 @@ import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -75,6 +76,7 @@ class BleStreamTransport private constructor(
     private val progress = Channel<Unit>(Channel.CONFLATED)
     private val inbound = Channel<ByteArray>(Channel.UNLIMITED)
     private val opened = CompletableDeferred<Unit>()
+    private val idle = IdleProbe(IDLE_PROBE_MS, SystemClock.elapsedRealtime())
 
     /** Completed by the writer once a CLOSE frame (and everything before it) was written. */
     private val closeSent = CompletableDeferred<Unit>()
@@ -94,7 +96,19 @@ class BleStreamTransport private constructor(
     private fun start() {
         scope.launch { readerLoop() }
         scope.launch { writerLoop() }
+        scope.launch { probeLoop() }
         wakeWriter.trySend(Unit)
+    }
+
+    /** Checks a quiet session now and then (see [IdleProbe]). */
+    private suspend fun probeLoop() {
+        while (scope.isActive) {
+            delay(PROBE_CHECK_MS)
+            val queued = lock.withLock {
+                (link.isOpen && !link.isClosing && idle.due(SystemClock.elapsedRealtime())).also { if (it) link.probe() }
+            }
+            if (queued) wakeWriter.trySend(Unit)
+        }
     }
 
     private fun fail(e: TransportException) {
@@ -110,7 +124,10 @@ class BleStreamTransport private constructor(
         // notifications are queued, so data and CLOSE are never lost to it.
         for (pkt in client.notifications) {
             val events = try {
-                lock.withLock { link.onPacket(pkt) }
+                lock.withLock {
+                    idle.received(SystemClock.elapsedRealtime())
+                    link.onPacket(pkt)
+                }
             } catch (e: BleStreamLink.ProtocolException) {
                 Timber.w("BLE protocol error: %s", e.message)
                 lock.withLock { link.close(BleStreamLink.CLOSE_PROTOCOL_ERROR, e.message ?: "") }
@@ -147,7 +164,15 @@ class BleStreamTransport private constructor(
                     wakeWriter.receive()
                     continue
                 }
-                client.writeFrame(frame)
+                if (BleStreamLink.isProbe(frame)) {
+                    try {
+                        client.writeFrame(frame, withResponse = true)
+                    } catch (e: TransportException) {
+                        throw TransportException("The ble-term server stopped responding (${e.message})", e)
+                    }
+                } else {
+                    client.writeFrame(frame)
+                }
                 progress.trySend(Unit)
             }
         } catch (e: TransportException) {
@@ -344,12 +369,13 @@ class BleStreamTransport private constructor(
         }
 
         @Suppress("DEPRECATION")
-        suspend fun writeFrame(frame: ByteArray) {
+        suspend fun writeFrame(frame: ByteArray, withResponse: Boolean = false) {
+            val type = if (withResponse) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             val status = opRetrying(Op.WRITE, "write") {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gatt.writeCharacteristic(rx, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
+                    gatt.writeCharacteristic(rx, frame, type) == BluetoothStatusCodes.SUCCESS
                 } else {
-                    rx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    rx.writeType = type
                     rx.value = frame
                     gatt.writeCharacteristic(rx)
                 }
@@ -379,6 +405,8 @@ class BleStreamTransport private constructor(
         private const val CONNECT_TIMEOUT_MS = 20_000L
         private const val HANDSHAKE_TIMEOUT_MS = 15_000L
         private const val CLOSE_FLUSH_MS = 1_000L
+        private const val IDLE_PROBE_MS = 20_000L
+        private const val PROBE_CHECK_MS = 1_000L
         private const val START_RETRIES = 100
         private const val START_RETRY_DELAY_MS = 10L
         private const val CONNECT_ATTEMPTS = 3
