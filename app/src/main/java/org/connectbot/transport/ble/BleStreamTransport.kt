@@ -28,15 +28,11 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
-import androidx.core.content.IntentCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -58,7 +54,6 @@ import org.connectbot.sshlib.transport.TransportException
 import timber.log.Timber
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * sshlib [Transport] over a ble-term server's BleStream GATT service.
@@ -72,6 +67,7 @@ class BleStreamTransport private constructor(
     private val client: GattClient,
     private val scope: CoroutineScope,
     maxFrame: Int,
+    private val pairing: PairingWatch,
 ) : Transport {
     private val link = BleStreamLink(maxFrame, RECV_WINDOW)
     private val lock = Mutex()
@@ -155,7 +151,9 @@ class BleStreamTransport private constructor(
             }
             wakeWriter.trySend(Unit)
         }
-        fail(TransportException("Bluetooth connection lost"))
+        // A pairing request can come at any time, e.g. when the server opens
+        // EATT after login; the phone then drops the link.
+        fail(TransportException(if (pairing.requested) pairing.message else "Bluetooth connection lost"))
     }
 
     private suspend fun writerLoop() {
@@ -232,6 +230,7 @@ class BleStreamTransport private constructor(
     override suspend fun close() {
         if (closed) return
         closed = true
+        pairing.stop()
         if (failure == null) {
             // Deliver queued SSH data (e.g. SSH_MSG_DISCONNECT) before CLOSE.
             withTimeoutOrNull(CLOSE_FLUSH_MS) {
@@ -478,21 +477,12 @@ class BleStreamTransport private constructor(
                 ?: throw TransportException("Invalid Bluetooth address: $address")
             val device = adapter.getRemoteDevice(mac)
 
-            // A server that still has EATT on (BlueZ before 5.67) asks the phone
-            // to pair; ble-term never pairs, the link then drops.
-            val pairingRequested = AtomicBoolean(false)
-            val bondWatch = object : BroadcastReceiver() {
-                override fun onReceive(c: Context, intent: Intent) {
-                    val d = IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
-                    if (d?.address == mac && state == BluetoothDevice.BOND_BONDING) pairingRequested.set(true)
-                }
-            }
-            ContextCompat.registerReceiver(context, bondWatch, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED)
+            val pairing = PairingWatch(context, mac)
             try {
-                return connectAttempts(context, device, mac, dispatcher, status) { pairingRequested.get() }
-            } finally {
-                context.unregisterReceiver(bondWatch)
+                return connectAttempts(context, device, mac, dispatcher, status, pairing)
+            } catch (e: Throwable) {
+                pairing.stop()
+                throw e
             }
         }
 
@@ -503,7 +493,7 @@ class BleStreamTransport private constructor(
             mac: String,
             dispatcher: CoroutineDispatcher,
             status: (String) -> Unit,
-            pairingRequested: () -> Boolean,
+            pairing: PairingWatch,
         ): BleStreamTransport {
             var lastError: TransportException? = null
             for (attempt in 1..CONNECT_ATTEMPTS) {
@@ -531,7 +521,7 @@ class BleStreamTransport private constructor(
                     if (rx == null || tx == null) throw TransportException("$mac has an incomplete ble-term service")
                     client.rx = rx
                     client.enableNotifications(tx)
-                    val transport = BleStreamTransport(client, scope, mtu - 3)
+                    val transport = BleStreamTransport(client, scope, mtu - 3, pairing)
                     transport.start()
                     withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
                     status(context.getString(R.string.ble_status_link_up, mtu))
@@ -552,7 +542,7 @@ class BleStreamTransport private constructor(
                     }
                 }
                 Timber.w(lastError, "BLE connect attempt %d failed", attempt)
-                if (pairingRequested()) throw TransportException(context.getString(R.string.ble_error_pairing_requested))
+                if (pairing.requested) throw TransportException(pairing.message)
                 if (!shouldRetry(lastError)) break
                 delay(500)
             }

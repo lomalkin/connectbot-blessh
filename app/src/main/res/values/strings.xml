@@ -2464,6 +2464,6 @@
     <string name="ble_status_connecting_attempt">Connecting to %1$s over Bluetooth LE (attempt %2$d)</string>
     <!-- Terminal line once the Bluetooth LE link to the server works; %1$d is the negotiated MTU in bytes -->
     <string name="ble_status_link_up">Bluetooth LE link up (MTU %1$d), starting SSH</string>
-    <!-- Error when a Bluetooth LE server asked to pair, which ble-term servers must not do; "Channels = 1" is a setting name, do not translate it -->
-    <string name="ble_error_pairing_requested">The server asked to pair, which ble-term does not use. On Debian 12 servers, add \"Channels = 1\" to the [GATT] section of /etc/bluetooth/main.conf.</string>
+    <!-- Error when a Bluetooth LE server asked to pair, which ble-term servers must not do; "Channels", "[GATT]" and the path are setting names, do not translate them -->
+    <string name="ble_error_pairing_requested">The server asked to pair, which ble-term does not use: its Bluetooth has EATT on. On the server, remove the Channels setting from the [GATT] section of /etc/bluetooth/main.conf (or set it to 1) and restart Bluetooth.</string>
 </resources>

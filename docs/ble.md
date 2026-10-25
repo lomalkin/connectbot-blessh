@@ -18,14 +18,18 @@ location to be on.
 
 ## Behaviour
 
-* Logins follow the server's SSH configuration (ble-term 0.2.0 and later):
-  what network SSH allows or refuses, BLE does too.
-* No Bluetooth pairing. A server that asks to pair (Debian 12 with EATT on)
-  gets a hint instead of a retry loop: set `Channels = 1` on the server.
+* Logins follow the server's SSH configuration: what network SSH allows or
+  refuses, BLE does too.
+* No Bluetooth pairing. ble-term keeps EATT off on the server, so servers
+  do not ask to pair; one that does (EATT turned on in its BlueZ settings),
+  during connection setup or later in the session, gets a hint instead of
+  a retry loop.
 * No port forwarding and no jump hosts. Keystroke timing obfuscation is off:
   it would use much of the link's bandwidth.
-* A session that is quiet for 20 s is probed with a write that the server
-  must acknowledge, so a server whose daemon went away is noticed.
+* A server that stops (upgrade, restart, shutdown) says so before the link
+  ends. A session that is quiet for 20 s is also probed with a write that
+  the server must acknowledge, so a server that went away without a word
+  is noticed.
 * Throughput is tens of kilobytes per second. New BLE hosts therefore have
   compression on (the server must allow it; OpenSSH does by default); it
   can be turned off per host.
@@ -36,7 +40,7 @@ location to be on.
 |---|---|
 | SSH over a non-TCP stream | `transport/BleSsh.kt`; hooks `directTransportFactory` and `obscureKeystrokeTiming` in `transport/SSH.kt` |
 | BleStream state machine (no Android dependencies) | `transport/ble/BleStreamLink.kt` |
-| GATT client, liveness probe | `transport/ble/BleStreamTransport.kt`, `transport/ble/IdleProbe.kt` |
+| GATT client, liveness probe, pairing requests | `transport/ble/BleStreamTransport.kt`, `transport/ble/IdleProbe.kt`, `transport/ble/PairingWatch.kt` |
 | Server scan | `ui/screens/hosteditor/BleScanDialog.kt` |
 
 The protocol and what must stay compatible with servers are specified in the
