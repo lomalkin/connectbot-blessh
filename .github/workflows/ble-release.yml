@@ -10,6 +10,12 @@ on:
     tags: ['ble-r*']
   workflow_dispatch:
 
+# A newer push to the branch makes a running build of it pointless; tag
+# builds publish releases and always run to the end.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
 jobs:
   # The checks upstream's CI runs on a pull request (`./gradlew check`: lint
   # and the unit tests of both flavors), split by flavor: on the smaller
