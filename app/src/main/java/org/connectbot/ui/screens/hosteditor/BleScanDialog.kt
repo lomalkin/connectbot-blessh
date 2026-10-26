@@ -115,8 +115,7 @@ internal fun needsLocationHint(sdk: Int, locationEnabled: Boolean): Boolean = sd
  * Whether the dialog says that location is off instead of "Searching". The
  * scan keeps running: should results arrive anyway, they are shown.
  */
-internal fun showLocationOff(sdk: Int, state: ScanState, locationEnabled: Boolean, found: Int): Boolean =
-    needsLocationHint(sdk, locationEnabled) && found == 0 && (state == ScanState.Scanning || state == ScanState.Finished)
+internal fun showLocationOff(sdk: Int, state: ScanState, locationEnabled: Boolean, found: Int): Boolean = needsLocationHint(sdk, locationEnabled) && found == 0 && (state == ScanState.Scanning || state == ScanState.Finished)
 
 private fun currentScanState(context: Context): ScanState {
     val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
