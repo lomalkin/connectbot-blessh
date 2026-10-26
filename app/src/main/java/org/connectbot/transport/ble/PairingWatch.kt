@@ -25,6 +25,7 @@ import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import org.connectbot.R
+import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -41,7 +42,9 @@ internal class PairingWatch(private val context: Context, private val address: S
         override fun onReceive(c: Context, intent: Intent) {
             val device = IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
             val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
-            if (device?.address == address && state == BluetoothDevice.BOND_BONDING) seen.set(true)
+            if (device?.address != address) return
+            Timber.i("Bond state of %s: %d", address, state)
+            if (state == BluetoothDevice.BOND_BONDING) seen.set(true)
         }
     }
 

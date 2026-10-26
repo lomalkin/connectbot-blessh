@@ -23,6 +23,7 @@ import androidx.core.net.toUri
 import org.connectbot.R
 import org.connectbot.data.entity.Host
 import org.connectbot.di.CoroutineDispatchers
+import org.connectbot.service.DisconnectReason
 import org.connectbot.service.TerminalBridge
 import org.connectbot.service.TerminalManager
 import org.connectbot.sshlib.transport.TransportFactory
@@ -54,8 +55,24 @@ class BleSsh : SSH {
         val context: Context = manager ?: return null
         val address = host?.hostname ?: return null
         return TransportFactory {
-            BleStreamTransport.connect(context, address, dispatchers.io) { bridge?.outputLine(it) }
+            BleStreamTransport.connect(context, address, dispatchers.io) { bridge?.outputLine(it) }.also { transport = it }
         }
+    }
+
+    @Volatile
+    private var transport: BleStreamTransport? = null
+
+    /**
+     * Shows why the Bluetooth LE link ended (the server's CLOSE reason, a
+     * pairing request, a server that stopped answering): the generic
+     * disconnect handling only reports that the host closed the connection.
+     */
+    override fun onDisconnect(reason: DisconnectReason) {
+        if (reason != DisconnectReason.SESSION_EXIT && reason != DisconnectReason.USER_REQUESTED) {
+            transport?.failureMessage?.let { bridge?.outputLine(it) }
+        }
+        transport = null
+        super.onDisconnect(reason)
     }
 
     override fun getDefaultPort(): Int = DEFAULT_PORT

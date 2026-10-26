@@ -95,6 +95,10 @@ class BleStreamTransport private constructor(
     override val isConnected: Boolean
         get() = !closed && failure == null
 
+    /** Why the link failed, unless it was closed here; for the terminal. */
+    val failureMessage: String?
+        get() = failure?.message?.takeIf { !closed }
+
     private fun start() {
         scope.launch { readerLoop() }
         scope.launch { writerLoop() }
@@ -453,7 +457,7 @@ class BleStreamTransport private constructor(
                 BleStreamLink.CLOSE_NORMAL -> "Server closed the session"
                 BleStreamLink.CLOSE_BUSY -> "Server is busy with another client"
                 BleStreamLink.CLOSE_PROTOCOL_ERROR -> "Server reported a protocol error"
-                BleStreamLink.CLOSE_SESSION_UNAVAILABLE -> "Server could not start an SSH session"
+                BleStreamLink.CLOSE_SESSION_UNAVAILABLE -> "Server ended the SSH session"
                 BleStreamLink.CLOSE_TIMEOUT -> "Server timed out"
                 else -> "Server closed the link"
             }

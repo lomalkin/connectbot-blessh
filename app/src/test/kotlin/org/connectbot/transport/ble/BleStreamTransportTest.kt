@@ -50,6 +50,8 @@ class BleStreamTransportTest {
         assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
             .isEqualTo("Server is busy with another client: another client is connected")
         assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_NORMAL, "")).isEqualTo("Server closed the session")
+        assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_SESSION_UNAVAILABLE, "server is shutting down"))
+            .isEqualTo("Server ended the SSH session: server is shutting down")
         // Reasons added after v1 are shown generically.
         assertThat(BleStreamTransport.describeClose(9, "x")).isEqualTo("Server closed the link: x")
     }
