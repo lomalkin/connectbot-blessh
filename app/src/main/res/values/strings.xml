@@ -2454,8 +2454,12 @@
     <string name="ble_scan_none_found">No ble-term server found. Check that it is on and nearby.</string>
     <!-- Scan dialog button that starts another scan -->
     <string name="ble_scan_again">Scan again</string>
-    <!-- Shown in the scan dialog on Android 11 and earlier while location is off -->
-    <string name="ble_scan_location_hint">Turn on location: Android 11 and earlier find Bluetooth devices only with location on.</string>
+    <!-- Shown in the scan dialog instead of "Searching" on Android 11 and earlier while location is off -->
+    <string name="ble_scan_location_off">Location is off. Android 11 and earlier find Bluetooth devices only while location is on.</string>
+    <!-- Second line under ble_scan_location_off -->
+    <string name="ble_scan_location_note">ConnectBot does not use your location.</string>
+    <!-- Button in the scan dialog that opens the system location settings -->
+    <string name="ble_scan_turn_on_location">Turn on location</string>
     <!-- Shown in the scan dialog when the system refused to start a scan; %1$d is the error code -->
     <string name="ble_scan_failed">Bluetooth scan failed (error %1$d).</string>
     <!-- Terminal line while connecting to a Bluetooth LE host; %1$s is its Bluetooth address -->

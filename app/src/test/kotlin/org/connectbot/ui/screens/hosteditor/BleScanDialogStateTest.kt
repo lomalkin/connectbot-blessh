@@ -47,4 +47,16 @@ class BleScanDialogStateTest {
         assertThat(isBleTermServer(emptyList())).isFalse()
         assertThat(isBleTermServer(null)).isFalse()
     }
+
+    @Test
+    fun locationOffReplacesSearchingUntilResultsArrive() {
+        val r = Build.VERSION_CODES.R
+        assertThat(showLocationOff(r, ScanState.Scanning, locationEnabled = false, found = 0)).isTrue()
+        assertThat(showLocationOff(r, ScanState.Finished, locationEnabled = false, found = 0)).isTrue()
+        assertThat(showLocationOff(r, ScanState.Scanning, locationEnabled = false, found = 1)).isFalse()
+        assertThat(showLocationOff(r, ScanState.Scanning, locationEnabled = true, found = 0)).isFalse()
+        assertThat(showLocationOff(Build.VERSION_CODES.S, ScanState.Scanning, locationEnabled = false, found = 0)).isFalse()
+        assertThat(showLocationOff(r, ScanState.BluetoothOff, locationEnabled = false, found = 0)).isFalse()
+        assertThat(showLocationOff(r, ScanState.NeedsPermission, locationEnabled = false, found = 0)).isFalse()
+    }
 }

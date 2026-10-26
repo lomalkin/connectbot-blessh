@@ -95,9 +95,16 @@ class BleStreamTransport private constructor(
     override val isConnected: Boolean
         get() = !closed && failure == null
 
-    /** Why the link failed, unless it was closed here; for the terminal. */
+    /** Set when the link had failed before it was closed here. */
+    @Volatile
+    private var failedBeforeClose = false
+
+    /**
+     * Why the link failed, for the terminal; null if it was simply closed
+     * here. ConnectBot may close the transport before it reports the loss.
+     */
     val failureMessage: String?
-        get() = failure?.message?.takeIf { !closed }
+        get() = failure?.message?.takeIf { !closed || failedBeforeClose }
 
     private fun start() {
         scope.launch { readerLoop() }
@@ -233,6 +240,7 @@ class BleStreamTransport private constructor(
 
     override suspend fun close() {
         if (closed) return
+        failedBeforeClose = failure != null
         closed = true
         pairing.stop()
         if (failure == null) {

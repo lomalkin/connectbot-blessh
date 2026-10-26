@@ -25,11 +25,14 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -48,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +111,13 @@ internal fun initialScanState(hasPermission: Boolean, hasAdapter: Boolean, enabl
 /** Android 11 and earlier report scan results only while location is on. */
 internal fun needsLocationHint(sdk: Int, locationEnabled: Boolean): Boolean = sdk <= Build.VERSION_CODES.R && !locationEnabled
 
+/**
+ * Whether the dialog says that location is off instead of "Searching". The
+ * scan keeps running: should results arrive anyway, they are shown.
+ */
+internal fun showLocationOff(sdk: Int, state: ScanState, locationEnabled: Boolean, found: Int): Boolean =
+    needsLocationHint(sdk, locationEnabled) && found == 0 && (state == ScanState.Scanning || state == ScanState.Finished)
+
 private fun currentScanState(context: Context): ScanState {
     val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     return initialScanState(hasBlePermissions(context), adapter != null, adapter?.isEnabled == true)
@@ -127,6 +138,31 @@ fun BleScanDialog(
     val context = LocalContext.current
     var state by remember { mutableStateOf(currentScanState(context)) }
     val servers = remember { mutableStateListOf<BleServer>() }
+    var locationOn by remember { mutableStateOf(locationEnabled(context)) }
+
+    // Restarts the scan (and its timeout) once location is turned on: the
+    // system holds back results until then, and the timeout may have run out.
+    var scanRound by remember { mutableIntStateOf(0) }
+    fun updateLocation() {
+        val on = locationEnabled(context)
+        if (on && !locationOn) {
+            if (state == ScanState.Finished) state = currentScanState(context)
+            scanRound++
+        }
+        locationOn = on
+    }
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
+        DisposableEffect(Unit) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, intent: Intent) = updateLocation()
+            }
+            ContextCompat.registerReceiver(context, receiver, IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION), ContextCompat.RECEIVER_EXPORTED)
+            onDispose { context.unregisterReceiver(receiver) }
+        }
+    }
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        updateLocation()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         state = if (hasBlePermissions(context)) currentScanState(context) else ScanState.Denied
@@ -140,11 +176,11 @@ fun BleScanDialog(
     }
 
     if (state == ScanState.Scanning) {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(scanRound) {
             delay(SCAN_TIMEOUT_MS)
             state = ScanState.Finished
         }
-        DisposableEffect(Unit) {
+        DisposableEffect(scanRound) {
             val stop = startScan(
                 context,
                 onResult = { server ->
@@ -157,29 +193,32 @@ fun BleScanDialog(
         }
     }
 
+    val locationOff = showLocationOff(Build.VERSION.SDK_INT, state, locationOn, servers.size)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.ble_scan_title)) },
         text = {
             Column {
-                when (val s = state) {
-                    ScanState.Denied -> Text(stringResource(R.string.ble_scan_permission_denied))
+                if (locationOff) {
+                    Text(stringResource(R.string.ble_scan_location_off))
+                    Text(stringResource(R.string.ble_scan_location_note), modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    when (val s = state) {
+                        ScanState.Denied -> Text(stringResource(R.string.ble_scan_permission_denied))
 
-                    ScanState.Unavailable -> Text(stringResource(R.string.ble_scan_unavailable))
+                        ScanState.Unavailable -> Text(stringResource(R.string.ble_scan_unavailable))
 
-                    ScanState.BluetoothOff -> Text(stringResource(R.string.ble_scan_bluetooth_off))
+                        ScanState.BluetoothOff -> Text(stringResource(R.string.ble_scan_bluetooth_off))
 
-                    is ScanState.Failed -> Text(stringResource(R.string.ble_scan_failed, s.code))
+                        is ScanState.Failed -> Text(stringResource(R.string.ble_scan_failed, s.code))
 
-                    ScanState.Finished -> if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_none_found))
+                        ScanState.Finished -> if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_none_found))
 
-                    ScanState.Scanning, ScanState.NeedsPermission -> {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
-                        if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_searching))
+                        ScanState.Scanning, ScanState.NeedsPermission -> {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                            if (servers.isEmpty()) Text(stringResource(R.string.ble_scan_searching))
+                        }
                     }
-                }
-                if ((state == ScanState.Scanning || state == ScanState.Finished) && needsLocationHint(Build.VERSION.SDK_INT, locationEnabled(context))) {
-                    Text(stringResource(R.string.ble_scan_location_hint), modifier = Modifier.padding(top = 8.dp))
                 }
                 LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                     items(servers, key = { it.address }) { server ->
@@ -193,16 +232,22 @@ fun BleScanDialog(
             }
         },
         confirmButton = {
-            when (state) {
-                ScanState.BluetoothOff -> TextButton(onClick = { enableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }) {
-                    Text(stringResource(R.string.ble_scan_turn_on))
+            if (locationOff) {
+                TextButton(onClick = { locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }) {
+                    Text(stringResource(R.string.ble_scan_turn_on_location))
                 }
+            } else {
+                when (state) {
+                    ScanState.BluetoothOff -> TextButton(onClick = { enableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }) {
+                        Text(stringResource(R.string.ble_scan_turn_on))
+                    }
 
-                ScanState.Finished, is ScanState.Failed -> TextButton(onClick = { state = currentScanState(context) }) {
-                    Text(stringResource(R.string.ble_scan_again))
+                    ScanState.Finished, is ScanState.Failed -> TextButton(onClick = { state = currentScanState(context) }) {
+                        Text(stringResource(R.string.ble_scan_again))
+                    }
+
+                    else -> {}
                 }
-
-                else -> {}
             }
         },
         dismissButton = {

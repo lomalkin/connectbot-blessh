@@ -14,7 +14,9 @@ runs over a GATT service, framed by the ble-term BleStream protocol.
 3. On the first connection, compare the fingerprint with the installer's.
 
 Scanning needs the Nearby devices permission; Android 11 and earlier also need
-location to be on.
+location to be on (the system holds back scan results until it is; the scan
+dialog says so and opens the location settings). Connecting to a saved host
+needs neither.
 
 ## Behaviour
 
