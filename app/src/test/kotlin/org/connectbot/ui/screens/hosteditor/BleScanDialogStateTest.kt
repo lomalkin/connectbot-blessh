@@ -19,7 +19,9 @@ package org.connectbot.ui.screens.hosteditor
 
 import android.os.Build
 import org.assertj.core.api.Assertions.assertThat
+import org.connectbot.transport.ble.BleStreamLink
 import org.junit.Test
+import java.util.UUID
 
 class BleScanDialogStateTest {
     @Test
@@ -35,5 +37,14 @@ class BleScanDialogStateTest {
         assertThat(needsLocationHint(Build.VERSION_CODES.R, locationEnabled = false)).isTrue()
         assertThat(needsLocationHint(Build.VERSION_CODES.R, locationEnabled = true)).isFalse()
         assertThat(needsLocationHint(Build.VERSION_CODES.S, locationEnabled = false)).isFalse()
+    }
+
+    @Test
+    fun picksBleTermServersFromUnfilteredResults() {
+        val other = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")
+        assertThat(isBleTermServer(listOf(other, BleStreamLink.SERVICE_UUID))).isTrue()
+        assertThat(isBleTermServer(listOf(other))).isFalse()
+        assertThat(isBleTermServer(emptyList())).isFalse()
+        assertThat(isBleTermServer(null)).isFalse()
     }
 }

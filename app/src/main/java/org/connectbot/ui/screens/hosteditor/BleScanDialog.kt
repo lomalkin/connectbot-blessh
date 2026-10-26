@@ -30,7 +30,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
-import android.os.ParcelUuid
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -63,6 +62,7 @@ import kotlinx.coroutines.delay
 import org.connectbot.R
 import org.connectbot.transport.ble.BleStreamLink
 import timber.log.Timber
+import java.util.UUID
 
 /** A ble-term server seen while scanning. */
 data class BleServer(val address: String, val name: String?, val rssi: Int)
@@ -211,7 +211,15 @@ fun BleScanDialog(
     )
 }
 
-/** Starts a filtered LE scan; returns a function that stops it. */
+/** Whether an advertisement's service UUIDs mark a ble-term server. */
+internal fun isBleTermServer(serviceUuids: List<UUID>?): Boolean = serviceUuids?.contains(BleStreamLink.SERVICE_UUID) == true
+
+/**
+ * Starts an LE scan for ble-term servers; returns a function that stops it.
+ * The scan has no filter and servers are picked here: on some phones
+ * (seen on Android 11) a service UUID filter, which the Bluetooth
+ * controller applies, lets nothing through.
+ */
 @SuppressLint("MissingPermission")
 private fun startScan(
     context: Context,
@@ -226,6 +234,7 @@ private fun startScan(
     }
     val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (!isBleTermServer(result.scanRecord?.serviceUuids?.map { it.uuid })) return
             val name = result.scanRecord?.deviceName ?: try {
                 result.device.name
             } catch (_: SecurityException) {
@@ -239,10 +248,9 @@ private fun startScan(
             onError(ScanState.Failed(errorCode))
         }
     }
-    val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(BleStreamLink.SERVICE_UUID)).build())
     val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
     try {
-        scanner.startScan(filters, settings, callback)
+        scanner.startScan(emptyList<ScanFilter>(), settings, callback)
     } catch (e: SecurityException) {
         onError(ScanState.Denied)
         return {}
