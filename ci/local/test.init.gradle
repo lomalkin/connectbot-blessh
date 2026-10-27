@@ -1,0 +1,13 @@
+// Local test builds (ci/local/build.sh): their own application ID and name,
+// so they install next to the signed ConnectBot BLE release instead of
+// replacing it.
+allprojects {
+    plugins.withId('com.android.application') {
+        androidComponents {
+            onVariants(selector().withBuildType('release')) { variant ->
+                variant.applicationId.set('io.github.aluminique.connectbot.ble.test')
+            }
+        }
+        android.sourceSets.release.res.srcDirs += "${rootDir}/ci/local/res"
+    }
+}
