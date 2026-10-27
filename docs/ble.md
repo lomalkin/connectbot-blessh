@@ -24,6 +24,9 @@ needs neither.
 
 * Logins follow the server's SSH configuration: what network SSH allows or
   refuses, BLE does too.
+* One client per server at a time. A busy server says so before the app
+  subscribes; the app then reports it and leaves, without disturbing the
+  session that is running.
 * No Bluetooth pairing. ble-term keeps EATT off on the server, so servers
   do not ask to pair; one that does (EATT turned on in its BlueZ settings),
   during connection setup or later in the session, gets a hint instead of

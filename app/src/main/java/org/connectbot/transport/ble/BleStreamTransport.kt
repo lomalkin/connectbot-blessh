@@ -272,7 +272,7 @@ class BleStreamTransport private constructor(
         lateinit var rx: BluetoothGattCharacteristic
         private val opMutex = Mutex()
 
-        enum class Op { MTU, DISCOVER, DESCRIPTOR, WRITE }
+        enum class Op { MTU, DISCOVER, READ, DESCRIPTOR, WRITE }
 
         private class Pending(val op: Op, val result: CompletableDeferred<Int>)
 
@@ -290,6 +290,9 @@ class BleStreamTransport private constructor(
 
         @Volatile
         var mtu = DEFAULT_MTU
+
+        @Volatile
+        private var readValue: ByteArray? = null
 
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             Timber.d("BLE connection state %d status %d", newState, status)
@@ -311,6 +314,20 @@ class BleStreamTransport private constructor(
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             complete(Op.DISCOVER, status)
+        }
+
+        override fun onCharacteristicRead(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+            readValue = value.copyOf()
+            complete(Op.READ, status)
+        }
+
+        @Deprecated("Used before API 33")
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicRead(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                readValue = characteristic.value?.copyOf()
+                complete(Op.READ, status)
+            }
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -376,6 +393,13 @@ class BleStreamTransport private constructor(
         suspend fun discover() {
             val status = opRetrying(Op.DISCOVER, "service discovery") { gatt.discoverServices() }
             if (status != BluetoothGatt.GATT_SUCCESS) throw TransportException("Service discovery failed (status $status)")
+        }
+
+        /** Reads [c]; null if the server refused the read. */
+        suspend fun read(c: BluetoothGattCharacteristic): ByteArray? {
+            readValue = null
+            val status = opRetrying(Op.READ, "read") { gatt.readCharacteristic(c) }
+            return readValue.takeIf { status == BluetoothGatt.GATT_SUCCESS }
         }
 
         lateinit var tx: BluetoothGattCharacteristic
@@ -531,6 +555,7 @@ class BleStreamTransport private constructor(
                     val rx = service.getCharacteristic(BleStreamLink.RX_UUID)
                     val tx = service.getCharacteristic(BleStreamLink.TX_UUID)
                     if (rx == null || tx == null) throw TransportException("$mac has an incomplete ble-term service")
+                    service.getCharacteristic(BleStreamLink.INFO_UUID)?.let { checkNotBusy(client, it) }
                     client.rx = rx
                     client.enableNotifications(tx)
                     val transport = BleStreamTransport(client, scope, mtu - 3, pairing)
@@ -575,6 +600,29 @@ class BleStreamTransport private constructor(
                     "not a ble-term server, or its Bluetooth did not answer in full"
             }
         }
+
+        /**
+         * Leaves before subscribing if another client holds the server. A
+         * turned-away client that subscribes and then disconnects can make
+         * BlueZ close the active client's notifications (see the server's
+         * docs/protocol.md), so the server says so in INFO.
+         */
+        private suspend fun checkNotBusy(client: GattClient, info: BluetoothGattCharacteristic) {
+            val value = try {
+                client.read(info)?.decodeToString()
+            } catch (e: TransportException) {
+                if (client.disconnected.isCompleted) throw e
+                Timber.w(e, "Cannot read server info")
+                null
+            }
+            Timber.i("Server info: %s", value)
+            if (value != null && infoBusy(value)) {
+                throw TransportException(describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
+            }
+        }
+
+        /** Whether an INFO value says that another client holds the server. */
+        internal fun infoBusy(info: String): Boolean = info.split(';').any { it == "busy=1" }
 
         /** Retry only failures to establish the link, not refusals by the server. */
         internal fun shouldRetry(error: TransportException?): Boolean {

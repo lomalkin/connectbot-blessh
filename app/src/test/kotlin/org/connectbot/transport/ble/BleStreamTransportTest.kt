@@ -48,6 +48,13 @@ class BleStreamTransportTest {
     }
 
     @Test
+    fun readsBusyFromInfo() {
+        assertThat(BleStreamTransport.infoBusy("proto=1;name=pi;mtu=23;busy=1")).isTrue()
+        assertThat(BleStreamTransport.infoBusy("proto=1;name=pi;mtu=23")).isFalse()
+        assertThat(BleStreamTransport.infoBusy("proto=1;name=busy=1x;mtu=23")).isFalse()
+    }
+
+    @Test
     fun missingServiceSaysWhatWasFound() {
         assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList()))
             .isEqualTo("AA:BB:CC:DD:EE:0F reported no services: not a ble-term server, or its Bluetooth did not answer")
