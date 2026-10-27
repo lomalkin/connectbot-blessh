@@ -170,8 +170,7 @@ open class SSH : AbsTransport {
      * after login (hostkeys-00@openssh.com). Leave those algorithms out there.
      */
     private fun SshClientConfig.Builder.avoidPlatformBigIntegerGap() {
-        // minSdk (24) up to Android 12; JVM unit tests report 0 and keep the full lists.
-        if (Build.VERSION.SDK_INT !in Build.VERSION_CODES.N until Build.VERSION_CODES.TIRAMISU) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
         fun without(list: String, drop: (String) -> Boolean) = list.split(',').filterNot(drop).joinToString(",")
         hostKeyAlgorithms = without(hostKeyAlgorithms) { "ecdsa-" in it }
         kexAlgorithms = without(kexAlgorithms) { it.startsWith("ecdh-sha2-") }
