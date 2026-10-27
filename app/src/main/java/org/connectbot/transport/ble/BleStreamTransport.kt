@@ -527,7 +527,7 @@ class BleStreamTransport private constructor(
                     client.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     client.discover()
                     val service = client.gatt.getService(BleStreamLink.SERVICE_UUID)
-                        ?: throw TransportException("$mac is not a ble-term server")
+                        ?: throw TransportException(missingService(mac, client.gatt.services.map { it.uuid }))
                     val rx = service.getCharacteristic(BleStreamLink.RX_UUID)
                     val tx = service.getCharacteristic(BleStreamLink.TX_UUID)
                     if (rx == null || tx == null) throw TransportException("$mac has an incomplete ble-term service")
@@ -559,6 +559,21 @@ class BleStreamTransport private constructor(
                 delay(500)
             }
             throw lastError ?: TransportException("Bluetooth LE connection failed")
+        }
+
+        /**
+         * Service discovery ended without the ble-term service. Android
+         * reports what it got, which is also what is left when the server
+         * stops answering halfway: say that rather than "not a server".
+         */
+        internal fun missingService(mac: String, found: List<UUID>): String {
+            Timber.i("Services of %s: %s", mac, found)
+            return if (found.isEmpty()) {
+                "$mac reported no services: not a ble-term server, or its Bluetooth did not answer"
+            } else {
+                "$mac did not report the ble-term service (${found.size} other services): " +
+                    "not a ble-term server, or its Bluetooth did not answer in full"
+            }
         }
 
         /** Retry only failures to establish the link, not refusals by the server. */

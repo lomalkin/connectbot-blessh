@@ -20,6 +20,7 @@ package org.connectbot.transport.ble
 import org.assertj.core.api.Assertions.assertThat
 import org.connectbot.sshlib.transport.TransportException
 import org.junit.Test
+import java.util.UUID
 
 class BleStreamTransportTest {
     @Test
@@ -42,7 +43,19 @@ class BleStreamTransportTest {
         assertThat(BleStreamTransport.shouldRetry(TransportException("Bluetooth connection failed (status 133)"))).isTrue()
         assertThat(BleStreamTransport.shouldRetry(null)).isTrue()
         assertThat(BleStreamTransport.shouldRetry(TransportException("Server is busy with another client"))).isFalse()
-        assertThat(BleStreamTransport.shouldRetry(TransportException("AA:BB:CC:DD:EE:0F is not a ble-term server"))).isFalse()
+        val missing = BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList())
+        assertThat(BleStreamTransport.shouldRetry(TransportException(missing))).isFalse()
+    }
+
+    @Test
+    fun missingServiceSaysWhatWasFound() {
+        assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList()))
+            .isEqualTo("AA:BB:CC:DD:EE:0F reported no services: not a ble-term server, or its Bluetooth did not answer")
+        val found = listOf(UUID.fromString("00001800-0000-1000-8000-00805f9b34fb"), UUID.fromString("00001801-0000-1000-8000-00805f9b34fb"))
+        assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", found)).isEqualTo(
+            "AA:BB:CC:DD:EE:0F did not report the ble-term service (2 other services): " +
+                "not a ble-term server, or its Bluetooth did not answer in full",
+        )
     }
 
     @Test
