@@ -19,7 +19,6 @@ package org.connectbot.transport
 
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.UserNotAuthenticatedException
 import androidx.annotation.VisibleForTesting
@@ -160,20 +159,6 @@ open class SSH : AbsTransport {
         policyDetails[currentHost.id] = SshPolicyDetails(currentHost.hostname, currentHost.crypto.preset, error = error)
         bridge?.outputLine(error)
         null
-    }
-
-    /**
-     * Fork-only workaround until sshlib is fixed: sshlib decodes ECDSA and
-     * NIST ECDH points with BigInteger(int, byte[], int, int), which Android
-     * has only since 13. On older versions the call throws NoSuchMethodError
-     * and kills the app, at the latest when the server sends its host keys
-     * after login (hostkeys-00@openssh.com). Leave those algorithms out there.
-     */
-    private fun SshClientConfig.Builder.avoidPlatformBigIntegerGap() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
-        fun without(list: String, drop: (String) -> Boolean) = list.split(',').filterNot(drop).joinToString(",")
-        hostKeyAlgorithms = without(hostKeyAlgorithms) { "ecdsa-" in it }
-        kexAlgorithms = without(kexAlgorithms) { it.startsWith("ecdh-sha2-") }
     }
 
     private fun policyHostKeyOrder(currentHost: Host, policy: SshCryptoPolicy): String {
@@ -833,7 +818,6 @@ open class SSH : AbsTransport {
                 this.port = jumpHost.port
             }
             this.hostKeyAlgorithms = policyHostKeyOrder(jumpHost, policy)
-            avoidPlatformBigIntegerGap()
             this.hostKeyVerifier = ConnectBotHostKeyVerifier(jumpHost)
             this.enableCompression = jumpHost.compression
             this.ipVersion = parseIpVersion(jumpHost.ipVersion, jumpHost.hostname)
@@ -1050,7 +1034,6 @@ open class SSH : AbsTransport {
                 this.port = currentHost.port
             }
             this.hostKeyAlgorithms = policyHostKeyOrder(currentHost, policy)
-            avoidPlatformBigIntegerGap()
             this.hostKeyVerifier = ConnectBotHostKeyVerifier(currentHost)
             this.enableCompression = compressionEnabled
             this.ipVersion = if (transportFactory != null) IpVersion.AUTO else parseIpVersion(currentHost.ipVersion, currentHost.hostname)
