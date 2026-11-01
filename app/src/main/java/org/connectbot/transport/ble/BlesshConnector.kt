@@ -17,6 +17,7 @@
 
 package org.connectbot.transport.ble
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -27,9 +28,13 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.core.location.LocationManagerCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
@@ -89,12 +94,35 @@ object BlesshConnector {
                 Timber.i(e, "Remembered address %s of %s did not work", remembered, name)
             }
         }
+        cannotScan(
+            Build.VERSION.SDK_INT,
+            { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED },
+            context.getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.isLocationEnabled(it) } ?: true,
+        )?.let { throw TransportException("Cannot look for \"$name\": $it") }
         status(context.getString(R.string.ble_status_searching, name))
         val device = findByName(adapter, name)
-            ?: throw TransportException("No blessh server named \"$name\" found nearby (Android 11 and earlier also need location turned on to search)")
+            ?: throw TransportException("No blessh server named \"$name\" found nearby")
         val transport = connectDevice(context, device, name, dispatcher, status)
         prefs.edit { putString(key, device.address) }
         return transport
+    }
+
+    /**
+     * Why the phone cannot scan for a server by name, or null if it can.
+     * Without the permission, or with location off before Android 12, the
+     * system silently withholds all scan results.
+     */
+    internal fun cannotScan(sdk: Int, granted: (String) -> Boolean, locationOn: Boolean): String? = when {
+        sdk >= Build.VERSION_CODES.S && !granted(Manifest.permission.BLUETOOTH_SCAN) ->
+            "ConnectBot needs the Nearby devices permission; open the host in the editor and tap Scan once to grant it"
+
+        sdk < Build.VERSION_CODES.S && !granted(Manifest.permission.ACCESS_FINE_LOCATION) ->
+            "ConnectBot needs the location permission to scan on Android 11 and earlier; open the host in the editor and tap Scan once to grant it"
+
+        sdk < Build.VERSION_CODES.S && !locationOn ->
+            "Android 11 and earlier find Bluetooth devices only while location is on; turn it on, or save the host with the server's Bluetooth address"
+
+        else -> null
     }
 
     /** Retry only failures to establish the link, not refusals by the server. */

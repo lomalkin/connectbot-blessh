@@ -69,4 +69,15 @@ class BleStreamTransportTest {
         // Reasons added after v1 are shown generically.
         assertThat(BleStreamTransport.describeClose(9, "x")).isEqualTo("Server closed the link: x")
     }
+
+    @Test
+    fun saysWhyItCannotScanForAName() {
+        val none: (String) -> Boolean = { false }
+        val all: (String) -> Boolean = { true }
+        assertThat(BlesshConnector.cannotScan(31, none, true)).contains("Nearby devices permission")
+        assertThat(BlesshConnector.cannotScan(31, all, false)).isNull()
+        assertThat(BlesshConnector.cannotScan(30, none, true)).contains("location permission")
+        assertThat(BlesshConnector.cannotScan(30, all, false)).contains("location is on")
+        assertThat(BlesshConnector.cannotScan(30, all, true)).isNull()
+    }
 }
