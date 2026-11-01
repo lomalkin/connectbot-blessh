@@ -1,15 +1,15 @@
 #!/bin/sh
-# Builds a test-signed ConnectBot BLE APK without GitHub Actions:
+# Builds a test-signed ConnectBot blessh APK without GitHub Actions:
 #   ci/local/build.sh <git ref> <name>
-# Same checks as the apk job of ble-release.yml (spotless, BLE unit tests),
-# then the Oss release APK with a test application ID ("ConnectBot BLE
+# Same checks as the apk job of blessh-release.yml (spotless, BLE unit tests),
+# then the Oss release APK with a test application ID ("ConnectBot blessh
 # test"), signed with a local test key that the script creates on first use.
 # Needs git and docker. Android SDK, Gradle cache and test key: $BUILD_DIR
-# (default ~/.cache/connectbot-ble-build). Output: $BUILD_DIR/out/<name>/.
+# (default ~/.cache/connectbot-blessh-build). Output: $BUILD_DIR/out/<name>/.
 set -eu
 REF=$1 NAME=$2
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-BUILD_DIR=${BUILD_DIR:-$HOME/.cache/connectbot-ble-build}
+BUILD_DIR=${BUILD_DIR:-$HOME/.cache/connectbot-blessh-build}
 mkdir -p "$BUILD_DIR/home"
 BUILD_DIR=$(cd "$BUILD_DIR" && pwd)
 src=$BUILD_DIR/src
@@ -18,10 +18,10 @@ run() {
         -e GRADLE_USER_HOME=/work/gradle -v "$BUILD_DIR:/work" "$@"
 }
 
-docker build -q -t connectbot-ble-build "$repo/ci/local" >/dev/null
+docker build -q -t connectbot-blessh-build "$repo/ci/local" >/dev/null
 
 if [ ! -d "$BUILD_DIR/android-sdk/cmdline-tools/latest" ]; then
-    run -w /work connectbot-ble-build sh -euc '
+    run -w /work connectbot-blessh-build sh -euc '
       curl -sSfLo /tmp/tools.zip https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
       mkdir -p android-sdk/cmdline-tools
       unzip -q /tmp/tools.zip -d /tmp/tools
@@ -32,10 +32,10 @@ fi
 
 if [ ! -f "$BUILD_DIR/test-signing.p12" ]; then
     (umask 077 && head -c 18 /dev/urandom | base64 > "$BUILD_DIR/test-signing.pass")
-    run -w /work connectbot-ble-build sh -euc '
+    run -w /work connectbot-blessh-build sh -euc '
       keytool -genkeypair -keystore test-signing.p12 -storetype PKCS12 \
-        -storepass "$(cat test-signing.pass)" -alias connectbot-ble-test \
-        -keyalg RSA -keysize 3072 -validity 3650 -dname "CN=ConnectBot BLE test builds"
+        -storepass "$(cat test-signing.pass)" -alias connectbot-blessh-test \
+        -keyalg RSA -keysize 3072 -validity 3650 -dname "CN=ConnectBot blessh test builds"
     '
 fi
 
@@ -49,8 +49,8 @@ git -C "$src" fetch -q "$repo" "$base:refs/remotes/origin/main"
 OUT=$BUILD_DIR/out/$NAME
 rm -rf "$OUT"
 mkdir -p "$OUT"
-run -e ORG_GRADLE_PROJECT_keystoreFile=/work/test-signing.p12 -e ORG_GRADLE_PROJECT_keystoreAlias=connectbot-ble-test \
-    -w /work/src connectbot-ble-build sh -euc '
+run -e ORG_GRADLE_PROJECT_keystoreFile=/work/test-signing.p12 -e ORG_GRADLE_PROJECT_keystoreAlias=connectbot-blessh-test \
+    -w /work/src connectbot-blessh-build sh -euc '
   export ORG_GRADLE_PROJECT_keystorePassword="$(cat /work/test-signing.pass)"
   ./gradlew -q --no-configuration-cache spotlessCheck
   ./gradlew -q --no-configuration-cache :app:testOssDebugUnitTest --tests "org.connectbot.transport.ble.*"
@@ -58,8 +58,8 @@ run -e ORG_GRADLE_PROJECT_keystoreFile=/work/test-signing.p12 -e ORG_GRADLE_PROJ
 '
 
 apk=$(ls "$src"/app/build/outputs/apk/oss/release/*.apk | head -n 1)
-cp "$apk" "$OUT/connectbot-ble-test-$NAME-$(git -C "$src" rev-parse --short=7 HEAD).apk"
+cp "$apk" "$OUT/connectbot-blessh-test-$NAME-$(git -C "$src" rev-parse --short=7 HEAD).apk"
 tools=$(cd "$BUILD_DIR" && ls -d android-sdk/build-tools/* | sort -V | tail -n 1)
-run -w /work connectbot-ble-build sh -c "$tools/apksigner verify --print-certs out/$NAME/*.apk | grep -E 'SHA-256|DN'
+run -w /work connectbot-blessh-build sh -c "$tools/apksigner verify --print-certs out/$NAME/*.apk | grep -E 'SHA-256|DN'
   $tools/aapt2 dump badging out/$NAME/*.apk | grep -E '^package:|application-label:'"
 (cd "$OUT" && sha256sum *.apk > SHA256SUMS && cat SHA256SUMS)

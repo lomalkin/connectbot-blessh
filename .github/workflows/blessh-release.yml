@@ -1,13 +1,13 @@
-# ConnectBot BLE: signed release builds of this fork. Runs on the `release`
-# branch (the `ble` branch plus fork-only files) and on tags `ble-r*`, which
+# ConnectBot blessh: signed release builds of this fork. Runs on the `release`
+# branch (the `ble` branch plus fork-only files) and on tags `blessh-android-r*`, which
 # publish a GitHub release. Upstream's workflows are disabled in this
 # repository.
-name: ble-release
+name: blessh-release
 
 on:
   push:
     branches: [release]
-    tags: ['ble-r*']
+    tags: ['blessh-android-r*']
   workflow_dispatch:
 
 # A newer push to the branch makes a running build of it pointless; tag
@@ -134,13 +134,13 @@ jobs:
           ORG_GRADLE_PROJECT_keystoreFile: ${{ runner.temp }}/release.p12
           ORG_GRADLE_PROJECT_keystorePassword: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_keystoreAlias: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
-        run: ./gradlew --no-configuration-cache --init-script ci/ble-release.init.gradle :app:assembleOssRelease
+        run: ./gradlew --no-configuration-cache --init-script ci/blessh-release.init.gradle :app:assembleOssRelease
 
       - name: Collect APK
         run: |
           rm -f "$RUNNER_TEMP/release.p12"
           mkdir -p out
-          name=connectbot-ble-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}
+          name=connectbot-blessh-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}
           cp app/build/outputs/apk/oss/release/*.apk "out/$name.apk"
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$tools/apksigner" verify --print-certs "out/$name.apk" | grep -E 'SHA-256|Signer #1 certificate DN'
@@ -149,7 +149,7 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: connectbot-ble-apk
+          name: connectbot-blessh-apk
           path: out/
 
       - name: Publish release
@@ -158,5 +158,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
-          printf 'ConnectBot BLE, based on ConnectBot %s plus the Bluetooth LE transport.\n\nSigning certificate SHA-256: D0:94:1A:C1:69:B6:D0:D5:49:65:74:9B:BD:AD:8D:D3:73:32:67:EF:3C:F6:8D:AE:2A:4D:81:61:40:34:B1:64\n' "$base" > notes.md
-          gh release create "$GITHUB_REF_NAME" out/* --title "ConnectBot BLE ${GITHUB_REF_NAME#ble-}" --notes-file notes.md
+          printf 'ConnectBot blessh, based on ConnectBot %s plus the blessh Bluetooth LE transport.\n\nSigning certificate SHA-256: D0:94:1A:C1:69:B6:D0:D5:49:65:74:9B:BD:AD:8D:D3:73:32:67:EF:3C:F6:8D:AE:2A:4D:81:61:40:34:B1:64\n' "$base" > notes.md
+          gh release create "$GITHUB_REF_NAME" out/* --title "ConnectBot blessh ${GITHUB_REF_NAME#blessh-android-}" --notes-file notes.md

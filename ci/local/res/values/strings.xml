@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Launcher and title name of local test builds of ConnectBot BLE. -->
-    <string name="app_name">ConnectBot BLE test</string>
+    <!-- Launcher and title name of local test builds of ConnectBot blessh. -->
+    <string name="app_name">ConnectBot blessh test</string>
 </resources>

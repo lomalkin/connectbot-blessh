@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Launcher and title name of the ConnectBot BLE fork's release builds. -->
-    <string name="app_name">ConnectBot BLE</string>
+    <!-- Launcher and title name of the ConnectBot blessh fork's release builds. -->
+    <string name="app_name">ConnectBot blessh</string>
 </resources>
