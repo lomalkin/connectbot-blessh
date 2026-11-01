@@ -46,6 +46,9 @@ class BleStreamTransportTest {
         assertThat(BlesshConnector.isRefusal(TransportException("Server refused the session: busy (4 sessions)"))).isTrue()
         val missing = BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList())
         assertThat(BlesshConnector.isRefusal(TransportException(missing))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("No L2CAP channel of the server worked (the channel stalled), and it serves no GATT stream"))).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server offers only L2CAP channels, which need Android 10 or later"))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("The blessh server stopped responding (x)"))).isFalse()
     }
 
     @Test

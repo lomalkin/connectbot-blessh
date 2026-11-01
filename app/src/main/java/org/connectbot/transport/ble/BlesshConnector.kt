@@ -125,10 +125,28 @@ object BlesshConnector {
         else -> null
     }
 
-    /** Retry only failures to establish the link, not refusals by the server. */
+    /**
+     * What the server or this phone decided, which another attempt would
+     * not change: the server's refusals and CLOSE reasons, a device that is
+     * not a blessh server, a server this phone cannot use. Everything else
+     * (a link or a channel that failed) is retried.
+     */
+    private val REFUSALS = listOf(
+        "Server refused",
+        "Server is busy",
+        "Server closed",
+        "Server ended",
+        "Server reported",
+        "Server timed out",
+        "Server offers only L2CAP channels, which need",
+        "not a blessh server",
+        "incomplete blessh service",
+        "is now \"",
+    )
+
     internal fun isRefusal(e: TransportException?): Boolean {
         val message = e?.message.orEmpty()
-        return message.startsWith("Server") || message.contains("blessh")
+        return REFUSALS.any { message.contains(it) }
     }
 
     @SuppressLint("MissingPermission")
@@ -194,8 +212,12 @@ object BlesshConnector {
         val info = link.info ?: ServerInfo(null, emptyList(), null, gattStream = true, busy = false)
         val channels = info.channelsFor(Build.VERSION.SDK_INT)
         var channelError: String? = null
+        // Without a GATT stream to fall back to, a channel that stalled gets
+        // a second try on the same link: some stacks stall now and then
+        // (seen between Android and a macOS server).
+        val rounds = if (info.gattStream) 1 else 2
         if (channels.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            for (psm in channels) {
+            for (psm in List(rounds) { channels }.flatten()) {
                 status(context.getString(R.string.ble_status_channel, psm))
                 when (val r = openChannel(link, psm, dispatcher)) {
                     is ChannelAttempt.Open -> {
@@ -216,7 +238,7 @@ object BlesshConnector {
                 if (Build.VERSION.SDK_INT < ServerInfo.L2CAP_MIN_SDK || info.psms.isEmpty()) {
                     "Server offers only L2CAP channels, which need Android 10 or later"
                 } else {
-                    "Server offers only L2CAP channels and none worked: ${channelError ?: "the server's handshake version is not supported"}"
+                    "No L2CAP channel of the server worked (${channelError ?: "its handshake version is not supported"}), and it serves no GATT stream"
                 },
             )
         }
