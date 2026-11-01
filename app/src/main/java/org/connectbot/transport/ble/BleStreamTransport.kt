@@ -507,8 +507,12 @@ class BleStreamTransport private constructor(
                 client.gatt = device.connectGatt(context, false, client, BluetoothDevice.TRANSPORT_LE)
                     ?: throw TransportException("Cannot create GATT connection")
                 withTimeout(connectTimeoutMs) { client.connected.await() }
-                val mtu = client.requestMtu()
                 client.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                // No MTU exchange here: only the GATT stream needs it (see
+                // startStream). Android discovers the services of an unbonded
+                // device by itself on connecting, while BlueZ on the server
+                // exchanges the MTU; an MTU request of ours in that moment
+                // was never sent and stalled the client (Android 11).
                 client.discover()
                 val service = client.gatt.getService(BleStreamLink.SERVICE_UUID)
                     ?: throw TransportException(missingService(mac, client.gatt.services.map { it.uuid }))
@@ -523,7 +527,7 @@ class BleStreamTransport private constructor(
                 }
                 Timber.i("Server info of %s: %s", mac, info)
                 opened = true
-                return GattLink(client, mtu, service, info?.let { ServerInfo.parse(it) })
+                return GattLink(client, service, info?.let { ServerInfo.parse(it) })
             } catch (e: TimeoutCancellationException) {
                 throw TransportException("Bluetooth LE connection timed out")
             } catch (e: SecurityException) {
@@ -556,13 +560,15 @@ class BleStreamTransport private constructor(
             // docs/protocol.md), so the server says so in INFO.
             if (link.info?.busy == true) throw TransportException(describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
             link.client.rx = rx
+            // Frames fill the ATT MTU, so the stream asks for a large one.
+            val mtu = link.client.requestMtu()
             link.client.enableNotifications(tx)
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
             try {
-                val transport = BleStreamTransport(link.client, scope, link.mtu - 3, pairing)
+                val transport = BleStreamTransport(link.client, scope, mtu - 3, pairing)
                 transport.start()
                 withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
-                status(context.getString(R.string.ble_status_link_up, link.mtu))
+                status(context.getString(R.string.ble_status_link_up, mtu))
                 return transport
             } catch (e: Throwable) {
                 scope.cancel()
@@ -591,7 +597,6 @@ class BleStreamTransport private constructor(
 /** A GATT connection to a blessh server: its service found and INFO read. */
 internal class GattLink(
     val client: BleStreamTransport.GattClient,
-    val mtu: Int,
     val service: BluetoothGattService,
     /** Null if the server has no INFO or it could not be read. */
     val info: ServerInfo?,
