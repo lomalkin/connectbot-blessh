@@ -28,6 +28,14 @@
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
 
+	<!-- Bluetooth LE hosts (SSH over blessh) -->
+	<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+	<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+	<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+	<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+	<uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
+
 	<uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
 
 	<supports-screens
@@ -74,6 +82,7 @@
 				<data android:scheme="mosh"/>
 				<data android:scheme="telnet"/>
 				<data android:scheme="local"/>
+				<data android:scheme="blessh"/>
 			</intent-filter>
 			<intent-filter>
 				<action android:name="android.intent.action.VIEW"/>
@@ -85,9 +94,11 @@
 				<data android:scheme="mosh"/>
 				<data android:scheme="telnet"/>
 				<data android:scheme="local"/>
+				<data android:scheme="blessh"/>
 				<!-- format:  ssh://user@host:port/#nickname  -->
 				<!-- format:  mosh://user@host:port/#nickname  -->
 				<!-- format:  telnet://host:port/#nickname  -->
+				<!-- format:  blessh://user@server/#nickname (server: name or address without colons)  -->
 				<!-- format:  local://  -->
 			</intent-filter>
 		</activity>

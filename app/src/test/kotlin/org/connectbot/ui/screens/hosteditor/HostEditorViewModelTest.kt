@@ -389,6 +389,34 @@ class HostEditorViewModelTest {
     }
 
     @Test
+    fun newBleHostDefaultsToCompression() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.compression)
+
+        viewModel.updateProtocol("blessh")
+        assertEquals(true, viewModel.uiState.value.compression)
+        viewModel.updateProtocol("ssh")
+        assertEquals(false, viewModel.uiState.value.compression)
+    }
+
+    @Test
+    fun compressionChosenByUserSurvivesProtocolChange() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.updateCompression(true)
+        viewModel.updateProtocol("blessh")
+        viewModel.updateProtocol("ssh")
+        assertEquals(true, viewModel.uiState.value.compression)
+
+        viewModel.updateProtocol("blessh")
+        viewModel.updateCompression(false)
+        viewModel.updateProtocol("ssh")
+        viewModel.updateProtocol("blessh")
+        assertEquals(false, viewModel.uiState.value.compression)
+    }
+
+    @Test
     fun testUpdateConnectionFieldsAndProtocol_neverRewriteNickname() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()

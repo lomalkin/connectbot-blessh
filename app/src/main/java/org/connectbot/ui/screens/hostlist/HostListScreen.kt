@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
@@ -557,7 +558,7 @@ private fun HostListItem(
     Column(modifier = modifier) {
         ListItem(
             supportingContent = {
-                Text("${host.protocol}://${host.hostname}:${host.port}")
+                Text(if (host.protocol == "blessh") "blessh://${host.hostname}" else "${host.protocol}://${host.hostname}:${host.port}")
             },
             leadingContent = {
                 Box(
@@ -591,6 +592,7 @@ private fun HostListItem(
                             imageVector = when (host.protocol) {
                                 "ssh" -> Icons.Default.Computer
                                 "telnet" -> Icons.Default.Computer
+                                "blessh" -> Icons.Default.Bluetooth
                                 else -> Icons.Default.Link
                             },
                             contentDescription = statusDescription.takeIf { it.isNotEmpty() },
@@ -671,7 +673,7 @@ private fun HostListItem(
                                     Icon(Icons.Default.ContentCopy, null)
                                 },
                             )
-                            if (host.protocol == "ssh") {
+                            if (host.protocol == "ssh" || host.protocol == "blessh") {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.list_host_forget_keys)) },
                                     onClick = {

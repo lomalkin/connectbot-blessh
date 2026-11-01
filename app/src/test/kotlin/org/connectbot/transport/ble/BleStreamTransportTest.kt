@@ -1,0 +1,86 @@
+/*
+ * ConnectBot: simple, powerful, open-source SSH client for Android
+ * Copyright 2026 Kenny Root
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.connectbot.transport.ble
+
+import org.assertj.core.api.Assertions.assertThat
+import org.connectbot.sshlib.transport.TransportException
+import org.junit.Test
+import java.util.UUID
+
+class BleStreamTransportTest {
+    @Test
+    fun normalizesAddresses() {
+        val expected = "AA:BB:CC:DD:EE:0F"
+        listOf("aa:bb:cc:dd:ee:0f", "AABBCCDDEE0F", "aa-bb-cc-dd-ee-0f", " AA:BB:CC:DD:EE:0F ").forEach {
+            assertThat(BleStreamTransport.normalizeAddress(it)).isEqualTo(expected)
+        }
+    }
+
+    @Test
+    fun rejectsInvalidAddresses() {
+        listOf("", "AA:BB:CC:DD:EE", "AA:BB:CC:DD:EE:0F:11", "GG:BB:CC:DD:EE:0F", "rns-3.local").forEach {
+            assertThat(BleStreamTransport.normalizeAddress(it)).isNull()
+        }
+    }
+
+    @Test
+    fun retriesOnlyLinkFailures() {
+        assertThat(BlesshConnector.isRefusal(TransportException("Bluetooth connection failed (status 133)"))).isFalse()
+        assertThat(BlesshConnector.isRefusal(null)).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server is busy with another client"))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server refused the session: busy (4 sessions)"))).isTrue()
+        val missing = BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList())
+        assertThat(BlesshConnector.isRefusal(TransportException(missing))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("No L2CAP channel of the server worked (the channel stalled), and it serves no GATT stream"))).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server offers only L2CAP channels, which need Android 10 or later"))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("The blessh server stopped responding (x)"))).isFalse()
+    }
+
+    @Test
+    fun missingServiceSaysWhatWasFound() {
+        assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList()))
+            .isEqualTo("AA:BB:CC:DD:EE:0F reported no services: not a blessh server, or its Bluetooth did not answer")
+        val found = listOf(UUID.fromString("00001800-0000-1000-8000-00805f9b34fb"), UUID.fromString("00001801-0000-1000-8000-00805f9b34fb"))
+        assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", found)).isEqualTo(
+            "AA:BB:CC:DD:EE:0F did not report the blessh service (2 other services): " +
+                "not a blessh server, or its Bluetooth did not answer in full",
+        )
+    }
+
+    @Test
+    fun describesCloseReasons() {
+        assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
+            .isEqualTo("Server is busy with another client: another client is connected")
+        assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_NORMAL, "")).isEqualTo("Server closed the session")
+        assertThat(BleStreamTransport.describeClose(BleStreamLink.CLOSE_SESSION_UNAVAILABLE, "server is shutting down"))
+            .isEqualTo("Server ended the SSH session: server is shutting down")
+        // Reasons added after v1 are shown generically.
+        assertThat(BleStreamTransport.describeClose(9, "x")).isEqualTo("Server closed the link: x")
+    }
+
+    @Test
+    fun saysWhyItCannotScanForAName() {
+        val none: (String) -> Boolean = { false }
+        val all: (String) -> Boolean = { true }
+        assertThat(BlesshConnector.cannotScan(31, none, true)).contains("Nearby devices permission")
+        assertThat(BlesshConnector.cannotScan(31, all, false)).isNull()
+        assertThat(BlesshConnector.cannotScan(30, none, true)).contains("location permission")
+        assertThat(BlesshConnector.cannotScan(30, all, false)).contains("location is on")
+        assertThat(BlesshConnector.cannotScan(30, all, true)).isNull()
+    }
+}

@@ -17,6 +17,11 @@
 
 package org.connectbot.ui.screens.hosteditor
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,12 +68,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import kotlinx.coroutines.launch
 import org.connectbot.BuildConfig
@@ -85,6 +92,7 @@ import org.connectbot.data.entity.TelnetNewlinePolicy
 import org.connectbot.data.entity.TelnetNonBinaryPolicy
 import org.connectbot.data.keyboard.KeyboardDraft
 import org.connectbot.sshlib.SshCryptoPolicy
+import org.connectbot.transport.ble.ServerNames
 import org.connectbot.ui.PreviewScreen
 import org.connectbot.ui.common.getIconColors
 import org.connectbot.ui.common.getLocalizedColorSchemeDescription
@@ -236,7 +244,18 @@ fun HostEditorScreenContent(
     }
     var showProtocolMenu by remember { mutableStateOf(false) }
     var showAdvancedOptions by rememberSaveable(hostId) { mutableStateOf(false) }
-    val protocols = listOf("ssh", "mosh", "telnet", "local")
+    val protocols = listOf("ssh", "mosh", "telnet", "local", "blessh")
+    var showBleScan by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val bleConnectPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(uiState.protocol) {
+        // Connecting needs BLUETOOTH_CONNECT even when the address is typed in.
+        if (uiState.protocol == "blessh" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            bleConnectPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }
     val canSave = (uiState.protocol == "local" || uiState.hostname.isNotBlank()) &&
         (uiState.protocol != "mosh" || uiState.isMoshNetworkTimeoutValid)
 
@@ -317,8 +336,8 @@ fun HostEditorScreenContent(
 
             // Only show username, hostname, and port for non-local protocols
             if (uiState.protocol != "local") {
-                // Show username field for SSH and Mosh protocols
-                if (uiState.protocol == "ssh" || uiState.protocol == "mosh") {
+                // Show username field for SSH-based protocols
+                if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh") {
                     OutlinedTextField(
                         value = uiState.username,
                         onValueChange = onUsernameChange,
@@ -333,7 +352,9 @@ fun HostEditorScreenContent(
                 OutlinedTextField(
                     value = uiState.hostname,
                     onValueChange = onHostnameChange,
-                    label = { Text(stringResource(R.string.hostpref_hostname_title)) },
+                    label = {
+                        Text(stringResource(if (uiState.protocol == "blessh") R.string.hostpref_ble_address_title else R.string.hostpref_hostname_title))
+                    },
                     isError = uiState.hostname.isBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -341,15 +362,37 @@ fun HostEditorScreenContent(
                     singleLine = true,
                 )
 
-                OutlinedTextField(
-                    value = uiState.port,
-                    onValueChange = onPortChange,
-                    label = { Text(stringResource(R.string.hostpref_port_title)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    singleLine = true,
-                )
+                if (uiState.protocol == "blessh") {
+                    TextButton(
+                        onClick = { showBleScan = true },
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        Text(stringResource(R.string.ble_scan_button))
+                    }
+                    if (showBleScan) {
+                        BleScanDialog(
+                            onDismiss = { showBleScan = false },
+                            onSelect = { server ->
+                                showBleScan = false
+                                // A name keeps working when the server's address
+                                // changes (macOS servers change theirs).
+                                val name = server.name?.takeIf { ServerNames.isValid(it) }
+                                onHostnameChange(name ?: server.address)
+                                if (uiState.nickname.isBlank() && server.name != null) onNicknameChange(server.name)
+                            },
+                        )
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = uiState.port,
+                        onValueChange = onPortChange,
+                        label = { Text(stringResource(R.string.hostpref_port_title)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        singleLine = true,
+                    )
+                }
             }
 
             // Color selector
@@ -514,7 +557,7 @@ fun HostEditorScreenContent(
                     }
 
                     // Save password section (SSH and Mosh)
-                    if (uiState.protocol == "ssh" || uiState.protocol == "mosh") {
+                    if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh") {
                         OutlinedTextField(
                             value = uiState.password,
                             onValueChange = onPasswordChange,
@@ -551,7 +594,7 @@ fun HostEditorScreenContent(
             }
 
             // SSH policy and host identity follow the authentication key selection.
-            if (showAdvancedOptions && (uiState.protocol == "ssh" || uiState.protocol == "mosh")) {
+            if (showAdvancedOptions && (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh")) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 CryptoPolicyEditor(uiState.crypto, uiState.algorithmCatalog, uiState.algorithmDefaults, onCryptoChange, onResolveCrypto, uiState.defaultMinimumRsaBits, uiState.defaultMinimumDhBits)
                 if (hostId != EntityIds.NONE) {

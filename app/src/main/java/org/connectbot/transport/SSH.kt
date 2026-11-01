@@ -1003,8 +1003,12 @@ open class SSH : AbsTransport {
             onDisconnect()
             return
         }
-        var transportFactory: TransportFactory? = null
+        var transportFactory: TransportFactory? = directTransportFactory(dispatchers)
         for (index in jumpHosts.indices.reversed()) {
+            if (transportFactory != null && index == jumpHosts.lastIndex) {
+                bridge?.outputLine("Jump hosts are not supported for ${instanceProtocolName()} hosts")
+                break
+            }
             val destination = if (index == 0) currentHost else jumpHosts[index - 1]
             transportFactory = connectToJumpHost(jumpHosts[index], destination, transportFactory, dispatchers) ?: run {
                 close()
@@ -1032,7 +1036,8 @@ open class SSH : AbsTransport {
             this.hostKeyAlgorithms = policyHostKeyOrder(currentHost, policy)
             this.hostKeyVerifier = ConnectBotHostKeyVerifier(currentHost)
             this.enableCompression = compressionEnabled
-            this.ipVersion = parseIpVersion(currentHost.ipVersion, currentHost.hostname)
+            this.ipVersion = if (transportFactory != null) IpVersion.AUTO else parseIpVersion(currentHost.ipVersion, currentHost.hostname)
+            if (!obscureKeystrokeTiming()) obscureKeystrokeTimingIntervalMs = 0L
             // The bridge owns teardown after the session's output has been read.
             // Mosh also needs its launcher channel to close without ending the handoff.
             this.autoDisconnectOnLastChannelClose = false
@@ -1639,6 +1644,15 @@ open class SSH : AbsTransport {
      * SSH returns "ssh", Mosh overrides to return "mosh".
      */
     open fun instanceProtocolName(): String = PROTOCOL
+
+    /**
+     * Factory for a non-TCP byte stream to run SSH over (e.g. Bluetooth LE).
+     * When non-null, host name and port are not used to open a socket.
+     */
+    protected open fun directTransportFactory(dispatchers: CoroutineDispatchers): TransportFactory? = null
+
+    /** Whether to send keystroke timing chaff (pointless and costly on slow links). */
+    protected open fun obscureKeystrokeTiming(): Boolean = true
 
     companion object {
         internal fun getKeySizeFromAlgorithm(algorithm: String, keyBlob: ByteArray): Int = when {

@@ -26,6 +26,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import org.connectbot.data.EntityIds
 import org.connectbot.data.keyboard.KeyboardLayout
+import org.connectbot.transport.BleSsh
 import org.connectbot.util.HostConstants
 import java.util.UUID
 
@@ -177,6 +178,14 @@ data class Host(
                 builder.fragment(nickname)
             }
 
+            "blessh" -> {
+                // Colons of a Bluetooth address would be parsed as a port
+                // separator; a server name is used as it is.
+                val server = BleSsh.uriHost(hostname)
+                builder.encodedAuthority(if (username.isNotEmpty()) "${Uri.encode(username)}@$server" else server)
+                builder.fragment(nickname)
+            }
+
             "ssh", "mosh", "telnet" -> {
                 // Build authority with hostname and port
                 val authority = buildString {
@@ -211,6 +220,21 @@ data class Host(
             username = username,
             hostname = hostname,
             port = port,
+        )
+
+        /**
+         * Create a new Bluetooth LE (SSH over blessh) host.
+         */
+        @JvmStatic
+        fun createBleHost(nickname: String, hostname: String, username: String): Host = Host(
+            id = UUID.randomUUID(),
+            nickname = nickname,
+            protocol = "blessh",
+            username = username,
+            hostname = hostname,
+            port = 0,
+            // The radio link is slow, so compression pays off.
+            compression = true,
         )
 
         /**

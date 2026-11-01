@@ -118,6 +118,21 @@ sealed class Transport {
         override fun parseUri(input: String): Uri? = org.connectbot.transport.Mosh.getUri(input)
     }
 
+    /**
+     * SSH over Bluetooth LE to a blessh server (no IP network involved)
+     */
+    object Ble : Transport() {
+        override val protocolName = "blessh"
+        override val defaultPort = 0
+        override val usesNetwork = false
+
+        override fun getFormatHint(context: Context): String = BleSsh.getFormatHint(context)
+
+        override fun createInstance(): AbsTransport = BleSsh()
+
+        override fun parseUri(input: String): Uri? = BleSsh.getUri(input)
+    }
+
     companion object {
         /**
          * Get a transport by its protocol name.
@@ -129,6 +144,7 @@ sealed class Transport {
             "mosh" -> Mosh
             "telnet" -> Telnet
             "local" -> Local
+            "blessh" -> Ble
             else -> null
         }
 
@@ -136,7 +152,7 @@ sealed class Transport {
          * Get all available transports
          */
         @JvmStatic
-        fun allTransports(): List<Transport> = listOf(Ssh, Mosh, Telnet, Local)
+        fun allTransports(): List<Transport> = listOf(Ssh, Mosh, Telnet, Local, Ble)
 
         /**
          * Get transport from a URI
