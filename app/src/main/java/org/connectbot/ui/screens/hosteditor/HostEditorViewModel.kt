@@ -338,8 +338,8 @@ class HostEditorViewModel @Inject constructor(
         val oldProtocol = _uiState.value.protocol
         _uiState.update {
             // Bluetooth LE hosts have no port; give other protocols their default back.
-            val port = if (oldProtocol == "ble" && (it.port.isBlank() || it.port == "0")) getDefaultPort(value) else it.port
-            val compression = if (compressionAutofillEnabled) value == "ble" else it.compression
+            val port = if (oldProtocol == "blessh" && (it.port.isBlank() || it.port == "0")) getDefaultPort(value) else it.port
+            val compression = if (compressionAutofillEnabled) value == "blessh" else it.compression
             it.copy(protocol = value, port = port, compression = compression, hasUnsavedChanges = true)
         }
 
@@ -491,7 +491,7 @@ class HostEditorViewModel @Inject constructor(
             val pendingKeyboard = keyboardDraft.value
             val pendingAutomation = automationDraft.value?.let(AutomationDraftCodec::decode)
             val pendingMacros = automationMacros.value.filter { macro -> pendingAutomation.orEmpty().any { it.macroId == macro.id } }
-            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "ble") {
+            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "blessh") {
                 withContext(dispatchers.default) { state.crypto.resolve() }
             }
             val existingHost = if (hostId != EntityIds.NONE) {
@@ -511,7 +511,7 @@ class HostEditorViewModel @Inject constructor(
                 protocol = state.protocol,
                 username = state.username,
                 hostname = state.hostname,
-                port = if (state.protocol == "ble") 0 else state.port.toIntOrNull() ?: getDefaultPort(state.protocol).toIntOrNull() ?: 22,
+                port = if (state.protocol == "blessh") 0 else state.port.toIntOrNull() ?: getDefaultPort(state.protocol).toIntOrNull() ?: 22,
                 color = state.color.takeIf { it != "gray" },
                 pubkeyId = state.pubkeyId,
                 profileId = state.profileId,
@@ -552,7 +552,7 @@ class HostEditorViewModel @Inject constructor(
             }
 
             // Handle password storage for SSH and Mosh
-            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "ble") {
+            if (state.protocol == "ssh" || state.protocol == "mosh" || state.protocol == "blessh") {
                 if (state.password.isNotEmpty()) {
                     // Save or update the password
                     securePasswordStorage.savePassword(savedHost.id, state.password)

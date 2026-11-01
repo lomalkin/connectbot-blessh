@@ -394,7 +394,7 @@ class HostEditorViewModelTest {
         advanceUntilIdle()
         assertEquals(false, viewModel.uiState.value.compression)
 
-        viewModel.updateProtocol("ble")
+        viewModel.updateProtocol("blessh")
         assertEquals(true, viewModel.uiState.value.compression)
         viewModel.updateProtocol("ssh")
         assertEquals(false, viewModel.uiState.value.compression)
@@ -405,14 +405,14 @@ class HostEditorViewModelTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.updateCompression(true)
-        viewModel.updateProtocol("ble")
+        viewModel.updateProtocol("blessh")
         viewModel.updateProtocol("ssh")
         assertEquals(true, viewModel.uiState.value.compression)
 
-        viewModel.updateProtocol("ble")
+        viewModel.updateProtocol("blessh")
         viewModel.updateCompression(false)
         viewModel.updateProtocol("ssh")
-        viewModel.updateProtocol("ble")
+        viewModel.updateProtocol("blessh")
         assertEquals(false, viewModel.uiState.value.compression)
     }
 

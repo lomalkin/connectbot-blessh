@@ -68,7 +68,7 @@ import org.connectbot.transport.ble.BleStreamLink
 import timber.log.Timber
 import java.util.UUID
 
-/** A ble-term server seen while scanning. */
+/** A blessh server seen while scanning. */
 data class BleServer(val address: String, val name: String?, val rssi: Int)
 
 private fun blePermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -125,7 +125,7 @@ private fun currentScanState(context: Context): ScanState {
 private fun locationEnabled(context: Context): Boolean = context.getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.isLocationEnabled(it) } ?: true
 
 /**
- * Scans for servers advertising the ble-term GATT service and lets the user
+ * Scans for servers advertising the blessh GATT service and lets the user
  * pick one. Requests the Nearby devices (or location, before Android 12)
  * permission first.
  */
@@ -255,11 +255,11 @@ fun BleScanDialog(
     )
 }
 
-/** Whether an advertisement's service UUIDs mark a ble-term server. */
+/** Whether an advertisement's service UUIDs mark a blessh server. */
 internal fun isBleTermServer(serviceUuids: List<UUID>?): Boolean = serviceUuids?.contains(BleStreamLink.SERVICE_UUID) == true
 
 /**
- * Starts an LE scan for ble-term servers; returns a function that stops it.
+ * Starts an LE scan for blessh servers; returns a function that stops it.
  * The scan has no filter and servers are picked here: on some phones
  * (seen on Android 11) a service UUID filter, which the Bluetooth
  * controller applies, lets nothing through.

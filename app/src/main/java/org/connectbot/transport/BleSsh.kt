@@ -28,13 +28,17 @@ import org.connectbot.service.TerminalBridge
 import org.connectbot.service.TerminalManager
 import org.connectbot.sshlib.transport.TransportFactory
 import org.connectbot.transport.ble.BleStreamTransport
+import org.connectbot.transport.ble.BlesshConnector
+import org.connectbot.transport.ble.BlesshTransport
+import org.connectbot.transport.ble.ServerNames
 import java.util.Locale
 import java.util.regex.Pattern
 
 /**
  * SSH over Bluetooth LE: a regular SSH session whose byte stream runs over a
- * ble-term server's GATT service instead of TCP. The host name is the
- * server's Bluetooth address; there is no port.
+ * blessh server's L2CAP channel or GATT stream instead of TCP
+ * (https://github.com/lomalkin/blessh, docs/protocol.md). The host name is
+ * the server's Bluetooth address or its advertised name; there is no port.
  */
 class BleSsh : SSH {
     constructor() : super()
@@ -55,16 +59,16 @@ class BleSsh : SSH {
         val context: Context = manager ?: return null
         val address = host?.hostname ?: return null
         return TransportFactory {
-            BleStreamTransport.connect(context, address, dispatchers.io) { bridge?.outputLine(it) }.also { transport = it }
+            BlesshConnector.connect(context, address, dispatchers.io) { bridge?.outputLine(it) }.also { transport = it }
         }
     }
 
     @Volatile
-    private var transport: BleStreamTransport? = null
+    private var transport: BlesshTransport? = null
 
     /**
-     * Shows why the Bluetooth LE link ended (the server's CLOSE reason, a
-     * pairing request, a server that stopped answering): the generic
+     * Shows why the Bluetooth LE link ended (the server's reason, a pairing
+     * request, a server that stopped answering): the generic
      * disconnect handling only reports that the host closed the connection.
      */
     override fun onDisconnect(reason: DisconnectReason) {
@@ -77,7 +81,7 @@ class BleSsh : SSH {
 
     override fun getDefaultPort(): Int = DEFAULT_PORT
 
-    override fun getDefaultNickname(username: String?, hostname: String?, port: Int): String = String.format(Locale.US, "ble:%s@%s", username, hostname)
+    override fun getDefaultNickname(username: String?, hostname: String?, port: Int): String = String.format(Locale.US, "blessh:%s@%s", username, hostname)
 
     override fun createHost(uri: Uri): Host {
         val hostname = addressFromUri(uri)
@@ -94,16 +98,23 @@ class BleSsh : SSH {
     }
 
     companion object {
-        private const val PROTOCOL = "ble"
+        private const val PROTOCOL = "blessh"
         private const val DEFAULT_PORT = 0
 
-        private val addressMask = Pattern.compile(
-            "^(.+)@([0-9a-f]{2}(?:[:-]?[0-9a-f]{2}){5})$",
-            Pattern.CASE_INSENSITIVE,
-        )
+        private val serverMask = Pattern.compile("^(.+)@([^@]+)$")
 
-        /** URI authority form of an address: colons would be read as a port separator. */
-        fun uriHost(address: String): String = address.replace(":", "").replace("-", "").uppercase(Locale.US)
+        /** Whether [server] is a Bluetooth address or a valid server name. */
+        fun isServer(server: String): Boolean = BleStreamTransport.normalizeAddress(server) != null || ServerNames.isValid(server.trim())
+
+        /**
+         * URI authority form of a server: an address without colons, which
+         * would be read as a port separator; a name as it is.
+         */
+        fun uriHost(server: String): String = if (BleStreamTransport.normalizeAddress(server) != null) {
+            server.replace(":", "").replace("-", "").uppercase(Locale.US)
+        } else {
+            server.trim()
+        }
 
         private fun addressFromUri(uri: Uri): String {
             val raw = uri.encodedAuthority?.substringAfter('@') ?: uri.host ?: ""
@@ -115,8 +126,8 @@ class BleSsh : SSH {
 
         @JvmStatic
         fun getUri(input: String): Uri? {
-            val matcher = addressMask.matcher(input.trim())
-            if (!matcher.matches()) return null
+            val matcher = serverMask.matcher(input.trim())
+            if (!matcher.matches() || !isServer(matcher.group(2))) return null
             return "$PROTOCOL://${Uri.encode(matcher.group(1))}@${uriHost(matcher.group(2))}/#${Uri.encode(input)}".toUri()
         }
 

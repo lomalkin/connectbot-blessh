@@ -34,9 +34,9 @@ class BleSshTest {
     @Test
     fun parsesUserAtAddress() {
         val uri = BleSsh.getUri("pi@b8:27:eb:2d:1d:59")!!
-        assertThat(uri.scheme).isEqualTo("ble")
+        assertThat(uri.scheme).isEqualTo("blessh")
         val host = BleSsh().createHost(uri)
-        assertThat(host.protocol).isEqualTo("ble")
+        assertThat(host.protocol).isEqualTo("blessh")
         assertThat(host.username).isEqualTo("pi")
         assertThat(host.hostname).isEqualTo("B8:27:EB:2D:1D:59")
         assertThat(host.port).isEqualTo(0)
@@ -50,8 +50,19 @@ class BleSshTest {
     }
 
     @Test
-    fun rejectsNonBluetoothHosts() {
-        assertThat(BleSsh.getUri("pi@rns-3.local")).isNull()
+    fun parsesUserAtServerName() {
+        val host = BleSsh().createHost(BleSsh.getUri("pi@my-Pi.lan")!!)
+        assertThat(host.protocol).isEqualTo("blessh")
+        assertThat(host.username).isEqualTo("pi")
+        assertThat(host.hostname).isEqualTo("my-Pi.lan")
+        assertThat(host.getUri().toString()).startsWith("blessh://pi@my-Pi.lan")
+    }
+
+    @Test
+    fun rejectsWhatIsNeitherAddressNorName() {
+        assertThat(BleSsh.getUri("pi@-pi")).isNull()
+        assertThat(BleSsh.getUri("pi@two words")).isNull()
+        assertThat(BleSsh.getUri("pi@a-name-longer-than-29-bytes-xyz")).isNull()
         assertThat(BleSsh.getUri("B8:27:EB:2D:1D:59")).isNull()
     }
 
@@ -59,6 +70,6 @@ class BleSshTest {
     fun selectsHostsByProtocolAndAddress() {
         val selection = HashMap<String, String>()
         BleSsh().getSelectionArgs(BleSsh.getUri("pi@b8-27-eb-2d-1d-59")!!, selection)
-        assertThat(selection).containsEntry("protocol", "ble").containsEntry("hostname", "B8:27:EB:2D:1D:59").containsEntry("username", "pi")
+        assertThat(selection).containsEntry("protocol", "blessh").containsEntry("hostname", "B8:27:EB:2D:1D:59").containsEntry("username", "pi")
     }
 }

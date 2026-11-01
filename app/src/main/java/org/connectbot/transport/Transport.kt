@@ -119,10 +119,10 @@ sealed class Transport {
     }
 
     /**
-     * SSH over Bluetooth LE to a ble-term server (no IP network involved)
+     * SSH over Bluetooth LE to a blessh server (no IP network involved)
      */
     object Ble : Transport() {
-        override val protocolName = "ble"
+        override val protocolName = "blessh"
         override val defaultPort = 0
         override val usesNetwork = false
 
@@ -144,7 +144,7 @@ sealed class Transport {
             "mosh" -> Mosh
             "telnet" -> Telnet
             "local" -> Local
-            "ble" -> Ble
+            "blessh" -> Ble
             else -> null
         }
 

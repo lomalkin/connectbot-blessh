@@ -72,7 +72,7 @@ fun ConnectionInfoDialog(details: ConnectionDetails, onDismiss: () -> Unit) {
                     details.localAddress?.let { address ->
                         item { ConnectionInfoField(stringResource(R.string.connection_info_local_address), address) }
                     }
-                    if (details.host.protocol == "ssh" || details.host.protocol == "mosh" || details.host.protocol == "ble") {
+                    if (details.host.protocol == "ssh" || details.host.protocol == "mosh" || details.host.protocol == "blessh") {
                         details.cryptoPolicies.forEach { policy ->
                             item { ConnectionInfoField(stringResource(R.string.crypto_policy_host, policy.host), cryptoPolicyTitleRes(policy.preset)?.let { stringResource(it) } ?: policy.preset) }
                             if (policy.minimumRsaBits != null && policy.minimumDhBits != null) {
