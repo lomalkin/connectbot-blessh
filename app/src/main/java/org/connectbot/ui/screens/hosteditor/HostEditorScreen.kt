@@ -92,6 +92,7 @@ import org.connectbot.data.entity.TelnetNewlinePolicy
 import org.connectbot.data.entity.TelnetNonBinaryPolicy
 import org.connectbot.data.keyboard.KeyboardDraft
 import org.connectbot.sshlib.SshCryptoPolicy
+import org.connectbot.transport.ble.ServerNames
 import org.connectbot.ui.PreviewScreen
 import org.connectbot.ui.common.getIconColors
 import org.connectbot.ui.common.getLocalizedColorSchemeDescription
@@ -243,13 +244,13 @@ fun HostEditorScreenContent(
     }
     var showProtocolMenu by remember { mutableStateOf(false) }
     var showAdvancedOptions by rememberSaveable(hostId) { mutableStateOf(false) }
-    val protocols = listOf("ssh", "mosh", "telnet", "local", "ble")
+    val protocols = listOf("ssh", "mosh", "telnet", "local", "blessh")
     var showBleScan by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val bleConnectPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(uiState.protocol) {
         // Connecting needs BLUETOOTH_CONNECT even when the address is typed in.
-        if (uiState.protocol == "ble" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        if (uiState.protocol == "blessh" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
         ) {
             bleConnectPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
@@ -336,7 +337,7 @@ fun HostEditorScreenContent(
             // Only show username, hostname, and port for non-local protocols
             if (uiState.protocol != "local") {
                 // Show username field for SSH-based protocols
-                if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "ble") {
+                if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh") {
                     OutlinedTextField(
                         value = uiState.username,
                         onValueChange = onUsernameChange,
@@ -352,7 +353,7 @@ fun HostEditorScreenContent(
                     value = uiState.hostname,
                     onValueChange = onHostnameChange,
                     label = {
-                        Text(stringResource(if (uiState.protocol == "ble") R.string.hostpref_ble_address_title else R.string.hostpref_hostname_title))
+                        Text(stringResource(if (uiState.protocol == "blessh") R.string.hostpref_ble_address_title else R.string.hostpref_hostname_title))
                     },
                     isError = uiState.hostname.isBlank(),
                     modifier = Modifier
@@ -361,7 +362,7 @@ fun HostEditorScreenContent(
                     singleLine = true,
                 )
 
-                if (uiState.protocol == "ble") {
+                if (uiState.protocol == "blessh") {
                     TextButton(
                         onClick = { showBleScan = true },
                         modifier = Modifier.padding(top = 4.dp),
@@ -373,7 +374,10 @@ fun HostEditorScreenContent(
                             onDismiss = { showBleScan = false },
                             onSelect = { server ->
                                 showBleScan = false
-                                onHostnameChange(server.address)
+                                // A name keeps working when the server's address
+                                // changes (macOS servers change theirs).
+                                val name = server.name?.takeIf { ServerNames.isValid(it) }
+                                onHostnameChange(name ?: server.address)
                                 if (uiState.nickname.isBlank() && server.name != null) onNicknameChange(server.name)
                             },
                         )
@@ -553,7 +557,7 @@ fun HostEditorScreenContent(
                     }
 
                     // Save password section (SSH and Mosh)
-                    if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "ble") {
+                    if (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh") {
                         OutlinedTextField(
                             value = uiState.password,
                             onValueChange = onPasswordChange,
@@ -590,7 +594,7 @@ fun HostEditorScreenContent(
             }
 
             // SSH policy and host identity follow the authentication key selection.
-            if (showAdvancedOptions && (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "ble")) {
+            if (showAdvancedOptions && (uiState.protocol == "ssh" || uiState.protocol == "mosh" || uiState.protocol == "blessh")) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 CryptoPolicyEditor(uiState.crypto, uiState.algorithmCatalog, uiState.algorithmDefaults, onCryptoChange, onResolveCrypto, uiState.defaultMinimumRsaBits, uiState.defaultMinimumDhBits)
                 if (hostId != EntityIds.NONE) {

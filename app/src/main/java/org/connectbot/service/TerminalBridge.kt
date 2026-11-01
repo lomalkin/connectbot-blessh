@@ -774,7 +774,7 @@ class TerminalBridge {
         }
 
         // Bluetooth LE hosts have no port; their transport reports its own progress.
-        if (host.protocol != "ble") {
+        if (host.protocol != "blessh") {
             outputLine(manager.res.getString(R.string.terminal_connecting, host.hostname, host.port, host.protocol))
         }
 

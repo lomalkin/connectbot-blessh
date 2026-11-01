@@ -29,7 +29,7 @@ import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Notices when the server at [address] asks the phone to pair. ble-term
+ * Notices when the server at [address] asks the phone to pair. blessh
  * never pairs; a server whose Bluetooth has EATT on asks for it, during
  * connection setup or later in the session, and the phone then drops the
  * link. Watches until [stop].

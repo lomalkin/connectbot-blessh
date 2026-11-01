@@ -2432,14 +2432,14 @@
     <string name="keyboard_builtin_presets_help">Built-in presets stay unchanged. Editing creates your own copy.</string>
     <!-- Badge distinguishing an immutable keyboard template from a saved layout. -->
     <string name="keyboard_builtin_preset">Built-in preset</string>
-    <!-- Placeholder for a Bluetooth device address in connection format hints, e.g. "username@bluetooth-address" -->
-    <string name="format_ble_address">bluetooth-address</string>
-    <!-- Host editor label of the host field when the protocol is Bluetooth LE (ble) -->
-    <string name="hostpref_ble_address_title">Bluetooth address</string>
-    <!-- Host editor button that opens a dialog listing nearby ble-term servers -->
+    <!-- Placeholder for a blessh server (its name or Bluetooth address) in connection format hints, e.g. "username@server" -->
+    <string name="format_ble_address">server</string>
+    <!-- Host editor label of the host field when the protocol is Bluetooth LE (blessh) -->
+    <string name="hostpref_ble_address_title">Server name or Bluetooth address</string>
+    <!-- Host editor button that opens a dialog listing nearby blessh servers -->
     <string name="ble_scan_button">Scan for Bluetooth LE servers</string>
-    <!-- Title of the dialog that lists nearby ble-term servers -->
-    <string name="ble_scan_title">Nearby ble-term servers</string>
+    <!-- Title of the dialog that lists nearby blessh servers -->
+    <string name="ble_scan_title">Nearby blessh servers</string>
     <!-- Shown in the scan dialog while no server has been found yet -->
     <string name="ble_scan_searching">Searching…</string>
     <!-- Shown in the scan dialog when the Nearby devices / location permission was denied -->
@@ -2451,7 +2451,7 @@
     <!-- Scan dialog button that asks the system to switch Bluetooth on -->
     <string name="ble_scan_turn_on">Turn on</string>
     <!-- Shown in the scan dialog when a scan ended without finding a server -->
-    <string name="ble_scan_none_found">No ble-term server found. Check that it is on and nearby.</string>
+    <string name="ble_scan_none_found">No blessh server found. Check that it is on and nearby.</string>
     <!-- Scan dialog button that starts another scan -->
     <string name="ble_scan_again">Scan again</string>
     <!-- Shown in the scan dialog instead of "Searching" on Android 11 and earlier while location is off -->
@@ -2462,12 +2462,20 @@
     <string name="ble_scan_turn_on_location">Turn on location</string>
     <!-- Shown in the scan dialog when the system refused to start a scan; %1$d is the error code -->
     <string name="ble_scan_failed">Bluetooth scan failed (error %1$d).</string>
-    <!-- Terminal line while connecting to a Bluetooth LE host; %1$s is its Bluetooth address -->
+    <!-- Terminal line while connecting to a Bluetooth LE host; %1$s is its Bluetooth address, or its name and remembered address -->
     <string name="ble_status_connecting">Connecting to %1$s over Bluetooth LE</string>
     <!-- Terminal line when a connection to a Bluetooth LE host is retried; %1$s is its address, %2$d the attempt number -->
     <string name="ble_status_connecting_attempt">Connecting to %1$s over Bluetooth LE (attempt %2$d)</string>
     <!-- Terminal line once the Bluetooth LE link to the server works; %1$d is the negotiated MTU in bytes -->
     <string name="ble_status_link_up">Bluetooth LE link up (MTU %1$d), starting SSH</string>
-    <!-- Error when a Bluetooth LE server asked to pair, which ble-term servers must not do; "Channels", "[GATT]" and the path are setting names, do not translate them -->
-    <string name="ble_error_pairing_requested">The server asked to pair, which ble-term does not use: its Bluetooth has EATT on. On the server, remove the Channels setting from the [GATT] section of /etc/bluetooth/main.conf (or set it to 1) and restart Bluetooth.</string>
+    <!-- Terminal line while scanning for a Bluetooth LE server by name; %1$s is the name -->
+    <string name="ble_status_searching">Looking for %1$s over Bluetooth LE</string>
+    <!-- Terminal line while opening an L2CAP channel to the server; %1$d is the channel's PSM; "L2CAP" is a technical term, do not translate it -->
+    <string name="ble_status_channel">Opening Bluetooth LE channel (L2CAP, PSM %1$d)</string>
+    <!-- Terminal line once an L2CAP channel to the server works; %1$d is its PSM -->
+    <string name="ble_status_channel_up">Bluetooth LE channel up (L2CAP, PSM %1$d), starting SSH</string>
+    <!-- Terminal line when no L2CAP channel worked and the slower GATT stream is used instead; "GATT" is a technical term, do not translate it -->
+    <string name="ble_status_channel_fallback">No channel worked, using the GATT stream</string>
+    <!-- Error when a Bluetooth LE server asked to pair, which blessh servers must not do; "Channels", "[GATT]" and the path are setting names, do not translate them -->
+    <string name="ble_error_pairing_requested">The server asked to pair, which blessh does not use: its Bluetooth has EATT on. On the server, remove the Channels setting from the [GATT] section of /etc/bluetooth/main.conf (or set it to 1) and restart Bluetooth.</string>
 </resources>

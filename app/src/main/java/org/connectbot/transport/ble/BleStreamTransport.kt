@@ -19,13 +19,12 @@ package org.connectbot.transport.ble
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
-import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
@@ -49,14 +48,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.connectbot.R
-import org.connectbot.sshlib.transport.Transport
 import org.connectbot.sshlib.transport.TransportException
 import timber.log.Timber
 import java.util.Locale
 import java.util.UUID
 
 /**
- * sshlib [Transport] over a ble-term server's BleStream GATT service.
+ * An sshlib transport over a blessh server's GATT stream, BleStream v1 (blessh
+ * docs/protocol.md, "GATT stream"): the fallback for servers without an
+ * L2CAP channel the phone can use. [BlesshConnector] decides which to use.
  *
  * One coroutine feeds received notifications through [BleStreamLink] into
  * [inbound]; another drains frames from the link into GATT writes, one write
@@ -68,7 +68,7 @@ class BleStreamTransport private constructor(
     private val scope: CoroutineScope,
     maxFrame: Int,
     private val pairing: PairingWatch,
-) : Transport {
+) : BlesshTransport {
     private val link = BleStreamLink(maxFrame, RECV_WINDOW)
     private val lock = Mutex()
     private val readLock = Mutex()
@@ -103,7 +103,7 @@ class BleStreamTransport private constructor(
      * Why the link failed, for the terminal; null if it was simply closed
      * here. ConnectBot may close the transport before it reports the loss.
      */
-    val failureMessage: String?
+    override val failureMessage: String?
         get() = failure?.message?.takeIf { !closed || failedBeforeClose }
 
     private fun start() {
@@ -183,7 +183,7 @@ class BleStreamTransport private constructor(
                     try {
                         client.writeFrame(frame, withResponse = true)
                     } catch (e: TransportException) {
-                        throw TransportException("The ble-term server stopped responding (${e.message})", e)
+                        throw TransportException("The blessh server stopped responding (${e.message})", e)
                     }
                 } else {
                     client.writeFrame(frame)
@@ -465,14 +465,12 @@ class BleStreamTransport private constructor(
         private const val REQUESTED_MTU = 517
         private const val DEFAULT_MTU = 23
         private const val OP_TIMEOUT_MS = 10_000L
-        private const val CONNECT_TIMEOUT_MS = 20_000L
         private const val HANDSHAKE_TIMEOUT_MS = 15_000L
         private const val CLOSE_FLUSH_MS = 1_000L
         private const val IDLE_PROBE_MS = 20_000L
         private const val PROBE_CHECK_MS = 1_000L
         private const val START_RETRIES = 100
         private const val START_RETRY_DELAY_MS = 10L
-        private const val CONNECT_ATTEMPTS = 3
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         fun hasPermission(context: Context): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
@@ -497,137 +495,104 @@ class BleStreamTransport private constructor(
         }
 
         /**
-         * Connects to the ble-term server at [address] and completes the
-         * BleStream handshake. [status] receives progress lines for the terminal.
+         * Opens a GATT connection to the server at [device], discovers its
+         * service and reads INFO. On failure everything is closed again.
          */
         @SuppressLint("MissingPermission")
-        suspend fun connect(context: Context, address: String, dispatcher: CoroutineDispatcher, status: (String) -> Unit): BleStreamTransport {
-            if (!hasPermission(context)) {
-                throw TransportException("ConnectBot needs the Nearby devices permission for Bluetooth LE hosts: open the host in the editor or allow it in system settings")
-            }
-            val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
-                ?: throw TransportException("Bluetooth is not available on this device")
-            if (!adapter.isEnabled) throw TransportException("Bluetooth is turned off")
-            val mac = normalizeAddress(address)
-                ?.takeIf { BluetoothAdapter.checkBluetoothAddress(it) }
-                ?: throw TransportException("Invalid Bluetooth address: $address")
-            val device = adapter.getRemoteDevice(mac)
-
-            val pairing = PairingWatch(context, mac)
+        internal suspend fun openGatt(context: Context, device: BluetoothDevice, connectTimeoutMs: Long): GattLink {
+            val mac = device.address
+            val client = GattClient()
+            var opened = false
             try {
-                return connectAttempts(context, device, mac, dispatcher, status, pairing)
+                client.gatt = device.connectGatt(context, false, client, BluetoothDevice.TRANSPORT_LE)
+                    ?: throw TransportException("Cannot create GATT connection")
+                withTimeout(connectTimeoutMs) { client.connected.await() }
+                val mtu = client.requestMtu()
+                client.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                client.discover()
+                val service = client.gatt.getService(BleStreamLink.SERVICE_UUID)
+                    ?: throw TransportException(missingService(mac, client.gatt.services.map { it.uuid }))
+                val info = service.getCharacteristic(BleStreamLink.INFO_UUID)?.let { c ->
+                    try {
+                        client.read(c)?.decodeToString()
+                    } catch (e: TransportException) {
+                        if (client.disconnected.isCompleted) throw e
+                        Timber.w(e, "Cannot read server info")
+                        null
+                    }
+                }
+                Timber.i("Server info of %s: %s", mac, info)
+                opened = true
+                return GattLink(client, mtu, service, info?.let { ServerInfo.parse(it) })
+            } catch (e: TimeoutCancellationException) {
+                throw TransportException("Bluetooth LE connection timed out")
+            } catch (e: SecurityException) {
+                throw TransportException("Bluetooth permission denied", e)
+            } finally {
+                // Also on cancellation: a leaked GattClient keeps the link and a
+                // system-wide GATT client slot.
+                if (!opened) client.close()
+            }
+        }
+
+        /**
+         * Starts the GATT stream on an open [link]: subscribes and completes
+         * the BleStream handshake. The link's client belongs to the
+         * transport from then on; on failure the caller closes it.
+         */
+        internal suspend fun startStream(
+            context: Context,
+            link: GattLink,
+            dispatcher: CoroutineDispatcher,
+            pairing: PairingWatch,
+            status: (String) -> Unit,
+        ): BleStreamTransport {
+            val mac = link.client.gatt.device.address
+            val rx = link.service.getCharacteristic(BleStreamLink.RX_UUID)
+            val tx = link.service.getCharacteristic(BleStreamLink.TX_UUID)
+            if (rx == null || tx == null) throw TransportException("$mac has an incomplete blessh service")
+            // A turned-away client that subscribes and then disconnects can
+            // make BlueZ close the active client's notifications (blessh
+            // docs/protocol.md), so the server says so in INFO.
+            if (link.info?.busy == true) throw TransportException(describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
+            link.client.rx = rx
+            link.client.enableNotifications(tx)
+            val scope = CoroutineScope(SupervisorJob() + dispatcher)
+            try {
+                val transport = BleStreamTransport(link.client, scope, link.mtu - 3, pairing)
+                transport.start()
+                withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
+                status(context.getString(R.string.ble_status_link_up, link.mtu))
+                return transport
             } catch (e: Throwable) {
-                pairing.stop()
+                scope.cancel()
+                if (e is TimeoutCancellationException) throw TransportException("The GATT stream handshake timed out")
                 throw e
             }
         }
 
-        @SuppressLint("MissingPermission")
-        private suspend fun connectAttempts(
-            context: Context,
-            device: BluetoothDevice,
-            mac: String,
-            dispatcher: CoroutineDispatcher,
-            status: (String) -> Unit,
-            pairing: PairingWatch,
-        ): BleStreamTransport {
-            var lastError: TransportException? = null
-            for (attempt in 1..CONNECT_ATTEMPTS) {
-                status(
-                    if (attempt == 1) {
-                        context.getString(R.string.ble_status_connecting, mac)
-                    } else {
-                        context.getString(R.string.ble_status_connecting_attempt, mac, attempt)
-                    },
-                )
-                val client = GattClient()
-                val scope = CoroutineScope(SupervisorJob() + dispatcher)
-                var connected = false
-                try {
-                    client.gatt = device.connectGatt(context, false, client, BluetoothDevice.TRANSPORT_LE)
-                        ?: throw TransportException("Cannot create GATT connection")
-                    withTimeout(CONNECT_TIMEOUT_MS) { client.connected.await() }
-                    val mtu = client.requestMtu()
-                    client.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                    client.discover()
-                    val service = client.gatt.getService(BleStreamLink.SERVICE_UUID)
-                        ?: throw TransportException(missingService(mac, client.gatt.services.map { it.uuid }))
-                    val rx = service.getCharacteristic(BleStreamLink.RX_UUID)
-                    val tx = service.getCharacteristic(BleStreamLink.TX_UUID)
-                    if (rx == null || tx == null) throw TransportException("$mac has an incomplete ble-term service")
-                    service.getCharacteristic(BleStreamLink.INFO_UUID)?.let { checkNotBusy(client, it) }
-                    client.rx = rx
-                    client.enableNotifications(tx)
-                    val transport = BleStreamTransport(client, scope, mtu - 3, pairing)
-                    transport.start()
-                    withTimeout(HANDSHAKE_TIMEOUT_MS) { transport.opened.await() }
-                    status(context.getString(R.string.ble_status_link_up, mtu))
-                    connected = true
-                    return transport
-                } catch (e: TimeoutCancellationException) {
-                    lastError = TransportException("Bluetooth LE connection timed out")
-                } catch (e: TransportException) {
-                    lastError = e
-                } catch (e: SecurityException) {
-                    lastError = TransportException("Bluetooth permission denied", e)
-                } finally {
-                    // Also on cancellation: a leaked GattClient keeps the link and a
-                    // system-wide GATT client slot.
-                    if (!connected) {
-                        client.close()
-                        scope.cancel()
-                    }
-                }
-                Timber.w(lastError, "BLE connect attempt %d failed", attempt)
-                if (pairing.requested) throw TransportException(pairing.message)
-                if (!shouldRetry(lastError)) break
-                delay(500)
-            }
-            throw lastError ?: TransportException("Bluetooth LE connection failed")
-        }
-
         /**
-         * Service discovery ended without the ble-term service. Android
+         * Service discovery ended without the blessh service. Android
          * reports what it got, which is also what is left when the server
          * stops answering halfway: say that rather than "not a server".
          */
         internal fun missingService(mac: String, found: List<UUID>): String {
             Timber.i("Services of %s: %s", mac, found)
             return if (found.isEmpty()) {
-                "$mac reported no services: not a ble-term server, or its Bluetooth did not answer"
+                "$mac reported no services: not a blessh server, or its Bluetooth did not answer"
             } else {
-                "$mac did not report the ble-term service (${found.size} other services): " +
-                    "not a ble-term server, or its Bluetooth did not answer in full"
+                "$mac did not report the blessh service (${found.size} other services): " +
+                    "not a blessh server, or its Bluetooth did not answer in full"
             }
-        }
-
-        /**
-         * Leaves before subscribing if another client holds the server. A
-         * turned-away client that subscribes and then disconnects can make
-         * BlueZ close the active client's notifications (see the server's
-         * docs/protocol.md), so the server says so in INFO.
-         */
-        private suspend fun checkNotBusy(client: GattClient, info: BluetoothGattCharacteristic) {
-            val value = try {
-                client.read(info)?.decodeToString()
-            } catch (e: TransportException) {
-                if (client.disconnected.isCompleted) throw e
-                Timber.w(e, "Cannot read server info")
-                null
-            }
-            Timber.i("Server info: %s", value)
-            if (value != null && infoBusy(value)) {
-                throw TransportException(describeClose(BleStreamLink.CLOSE_BUSY, "another client is connected"))
-            }
-        }
-
-        /** Whether an INFO value says that another client holds the server. */
-        internal fun infoBusy(info: String): Boolean = info.split(';').any { it == "busy=1" }
-
-        /** Retry only failures to establish the link, not refusals by the server. */
-        internal fun shouldRetry(error: TransportException?): Boolean {
-            val message = error?.message.orEmpty()
-            return !message.startsWith("Server") && !message.contains("ble-term")
         }
     }
 }
+
+/** A GATT connection to a blessh server: its service found and INFO read. */
+internal class GattLink(
+    val client: BleStreamTransport.GattClient,
+    val mtu: Int,
+    val service: BluetoothGattService,
+    /** Null if the server has no INFO or it could not be read. */
+    val info: ServerInfo?,
+)

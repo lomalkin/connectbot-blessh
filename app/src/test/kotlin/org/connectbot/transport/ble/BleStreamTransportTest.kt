@@ -40,28 +40,22 @@ class BleStreamTransportTest {
 
     @Test
     fun retriesOnlyLinkFailures() {
-        assertThat(BleStreamTransport.shouldRetry(TransportException("Bluetooth connection failed (status 133)"))).isTrue()
-        assertThat(BleStreamTransport.shouldRetry(null)).isTrue()
-        assertThat(BleStreamTransport.shouldRetry(TransportException("Server is busy with another client"))).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException("Bluetooth connection failed (status 133)"))).isFalse()
+        assertThat(BlesshConnector.isRefusal(null)).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server is busy with another client"))).isTrue()
+        assertThat(BlesshConnector.isRefusal(TransportException("Server refused the session: busy (4 sessions)"))).isTrue()
         val missing = BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList())
-        assertThat(BleStreamTransport.shouldRetry(TransportException(missing))).isFalse()
-    }
-
-    @Test
-    fun readsBusyFromInfo() {
-        assertThat(BleStreamTransport.infoBusy("proto=1;name=pi;mtu=23;busy=1")).isTrue()
-        assertThat(BleStreamTransport.infoBusy("proto=1;name=pi;mtu=23")).isFalse()
-        assertThat(BleStreamTransport.infoBusy("proto=1;name=busy=1x;mtu=23")).isFalse()
+        assertThat(BlesshConnector.isRefusal(TransportException(missing))).isTrue()
     }
 
     @Test
     fun missingServiceSaysWhatWasFound() {
         assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", emptyList()))
-            .isEqualTo("AA:BB:CC:DD:EE:0F reported no services: not a ble-term server, or its Bluetooth did not answer")
+            .isEqualTo("AA:BB:CC:DD:EE:0F reported no services: not a blessh server, or its Bluetooth did not answer")
         val found = listOf(UUID.fromString("00001800-0000-1000-8000-00805f9b34fb"), UUID.fromString("00001801-0000-1000-8000-00805f9b34fb"))
         assertThat(BleStreamTransport.missingService("AA:BB:CC:DD:EE:0F", found)).isEqualTo(
-            "AA:BB:CC:DD:EE:0F did not report the ble-term service (2 other services): " +
-                "not a ble-term server, or its Bluetooth did not answer in full",
+            "AA:BB:CC:DD:EE:0F did not report the blessh service (2 other services): " +
+                "not a blessh server, or its Bluetooth did not answer in full",
         )
     }
 
